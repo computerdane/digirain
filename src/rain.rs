@@ -215,22 +215,25 @@ impl<'a> Rain<'a> {
                 let drop = &mut self.next_frame[row][col];
                 let color = drop.style().foreground_color.unwrap();
 
-                if color != COLOR_BLACK && rng.random_range(0..100) < 4 {
+                if color != COLOR_BLACK && rng.random_bool(self.args.prob_symbol_change) {
                     *drop = StyledContent::new(*drop.style(), random_item(self.symbols, &mut rng));
                 }
 
-                let r = rng.random_range(0..1000);
-                if r < 7 {
+                if rng.random_bool(self.args.prob_color) {
                     *drop = drop.with(self.color)
-                } else if r < 10 {
+                }
+                if rng.random_bool(self.args.prob_color_dim) {
                     *drop = drop.with(self.color_dim)
                 }
 
-                let r = rng.random_range(0..100);
-                if r < 20 {
+                if rng.random_bool(self.args.prob_color_fade) {
                     let color = drop.style().foreground_color.unwrap();
                     if color != COLOR_BLACK {
-                        *drop = drop.content().with(interp(color, COLOR_BLACK, 0.92));
+                        *drop = drop.content().with(interp(
+                            color,
+                            COLOR_BLACK,
+                            self.args.color_fade_scale,
+                        ));
                     }
                 }
             }
@@ -242,15 +245,17 @@ impl<'a> Rain<'a> {
             return;
         }
 
-        if now - self.line_added_at > 80 {
+        if now - self.line_added_at > self.args.line_add_interval {
             self.line_added_at = now;
             if self.lines.len() < self.width {
                 let mut rng = rand::rng();
                 let mut line = Line {
-                    row: rng.random_range(-100..0),
+                    row: rng.random_range(self.args.line_row_start..0),
                     col: rng.random_range(0..(self.width as i32)),
-                    len: rng.random_range(30..40),
-                    update_interval: rng.random_range(30..60),
+                    len: rng.random_range(self.args.min_line_len..=self.args.max_line_len),
+                    update_interval: rng.random_range(
+                        self.args.min_line_update_interval..=self.args.max_line_update_interval,
+                    ),
                     last_updated_at: 0,
                     colors: vec![],
                 };

@@ -35,10 +35,42 @@ pub struct Args {
 
     #[arg(long, value_enum, default_value_t = RainColor::Green)]
     color: RainColor,
+
+    #[arg(long, default_value_t = 0.04)]
+    prob_symbol_change: f64,
+    #[arg(long, default_value_t = 0.007)]
+    prob_color: f64,
+    #[arg(long, default_value_t = 0.003)]
+    prob_color_dim: f64,
+    #[arg(long, default_value_t = 0.16)]
+    prob_color_fade: f64,
+
+    #[arg(long, default_value_t = 0.92)]
+    color_fade_scale: f64,
+
+    #[arg(long, default_value_t = -100)]
+    line_row_start: i32,
+
+    #[arg(long, default_value_t = 30)]
+    min_line_len: i32,
+    #[arg(long, default_value_t = 40)]
+    max_line_len: i32,
+
+    #[arg(long, default_value_t = 30)]
+    min_line_update_interval: u128,
+    #[arg(long, default_value_t = 60)]
+    max_line_update_interval: u128,
+
+    #[arg(long, default_value_t = 80)]
+    line_add_interval: u128,
+
+    #[arg(long, default_value_t = 15)]
+    target_delta: u128,
 }
 
 fn main() {
     let args = Args::parse();
+    let target_delta = args.target_delta;
 
     let rain = Arc::new(Mutex::new(Rain::new(args)));
     rain.lock().unwrap().update_frame_size();
@@ -94,7 +126,6 @@ fn main() {
     )
     .unwrap();
 
-    let target_delta = 15;
     let mut start;
     let mut end = current_time_millis();
     loop {
