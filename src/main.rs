@@ -43,27 +43,32 @@ fn main() {
     let rain = Arc::new(Mutex::new(Rain::new(args)));
     rain.lock().unwrap().update_frame_size();
 
-    thread::spawn(|| {
-        let mut signals =
-            Signals::new(&[SIGTERM, SIGINT]).expect("Failed to create signal handler");
-        for signal in signals.forever() {
-            match signal {
-                SIGTERM | SIGINT => {
-                    execute!(
-                        stdout(),
-                        SetAttribute(Attribute::Reset),
-                        Clear(ClearType::All),
-                        cursor::MoveTo(0, 0),
-                        cursor::Show
-                    )
-                    .unwrap();
+    {
+        let rain = Arc::clone(&rain);
+        thread::spawn(move || {
+            let mut signals =
+                Signals::new(&[SIGTERM, SIGINT]).expect("Failed to create signal handler");
+            for signal in signals.forever() {
+                match signal {
+                    SIGTERM | SIGINT => {
+                        rain.lock().unwrap().pause();
 
-                    process::exit(0);
-                }
-                _ => unreachable!(),
-            };
-        }
-    });
+                        execute!(
+                            stdout(),
+                            SetAttribute(Attribute::Reset),
+                            Clear(ClearType::All),
+                            cursor::MoveTo(0, 0),
+                            cursor::Show
+                        )
+                        .unwrap();
+
+                        process::exit(0);
+                    }
+                    _ => unreachable!(),
+                };
+            }
+        });
+    }
 
     {
         let rain = Arc::clone(&rain);
@@ -74,7 +79,6 @@ fn main() {
                     SIGWINCH => {
                         let mut rain = rain.lock().unwrap();
                         rain.update_frame_size();
-                        rain.refresh();
                     }
                     _ => unreachable!(),
                 };

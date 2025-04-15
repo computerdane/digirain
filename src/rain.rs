@@ -34,6 +34,7 @@ pub struct Rain<'a> {
     color_dim: Color,
     color_bright: Color,
     needs_refresh: bool,
+    paused: bool,
 }
 
 impl<'a> Rain<'a> {
@@ -51,6 +52,7 @@ impl<'a> Rain<'a> {
             color_dim: COLOR_BLACK,
             color_bright: COLOR_BLACK,
             needs_refresh: false,
+            paused: false,
         };
         rain.symbols = if rain.args.half_width {
             &SYMBOLS_HALF
@@ -114,6 +116,7 @@ impl<'a> Rain<'a> {
     }
 
     pub fn update_frame_size(&mut self) {
+        let (prev_width, prev_height) = (self.width, self.height);
         let (width, height) = terminal::size().unwrap();
         (self.width, self.height) = (
             if self.args.half_width {
@@ -123,22 +126,60 @@ impl<'a> Rain<'a> {
             } as usize,
             height as usize,
         );
-        let blank_symbol = self.symbols[0].with(COLOR_BLACK);
-        self.prev_frame = Box::new(vec![vec![blank_symbol; self.width]; self.height]);
-        self.next_frame = Box::new(vec![vec![blank_symbol; self.width]; self.height]);
+
         let mut rng = rand::rng();
-        for row in 0..self.height {
-            for col in 0..self.width {
-                self.next_frame[row][col] = random_item(self.symbols, &mut rng).with(COLOR_BLACK);
+        let blank_symbol = self.symbols[0].with(COLOR_BLACK);
+
+        if self.height <= prev_height {
+            self.prev_frame = Box::new(self.prev_frame[0..self.height].to_vec());
+            self.next_frame = Box::new(self.next_frame[0..self.height].to_vec());
+        } else {
+            self.prev_frame
+                .resize(self.height, vec![blank_symbol; self.width]);
+            self.next_frame
+                .resize(self.height, vec![blank_symbol; self.width]);
+            for row in prev_height..self.height {
+                for col in 0..self.width {
+                    self.next_frame[row][col] =
+                        random_item(self.symbols, &mut rng).with(COLOR_BLACK);
+                }
             }
         }
+
+        if self.width <= prev_width {
+            for line in self.prev_frame.iter_mut() {
+                *line = line[0..self.width].to_vec();
+            }
+            for line in self.next_frame.iter_mut() {
+                *line = line[0..self.width].to_vec();
+            }
+        } else {
+            for row in 0..self.height {
+                self.prev_frame[row].resize(self.width, blank_symbol);
+                self.next_frame[row].resize(self.width, blank_symbol);
+                for col in prev_width..self.width {
+                    self.next_frame[row][col] =
+                        random_item(self.symbols, &mut rng).with(COLOR_BLACK);
+                }
+            }
+        }
+        self.needs_refresh = true;
     }
 
     pub fn render(&mut self) {
+        if self.paused {
+            return;
+        }
+
         for row in 0..self.height {
+            if self.needs_refresh {
+                execute!(stdout(), cursor::MoveTo(0, row as u16)).unwrap();
+            }
             for col in 0..self.width {
                 let drop = self.next_frame[row][col];
-                if self.needs_refresh || self.next_frame[row][col] != self.prev_frame[row][col] {
+                if self.needs_refresh {
+                    execute!(stdout(), PrintStyledContent(drop)).unwrap();
+                } else if self.next_frame[row][col] != self.prev_frame[row][col] {
                     execute!(
                         stdout(),
                         cursor::MoveTo(
@@ -148,14 +189,18 @@ impl<'a> Rain<'a> {
                         PrintStyledContent(drop)
                     )
                     .unwrap();
-                    self.prev_frame[row][col] = self.next_frame[row][col];
                 }
+                self.prev_frame[row][col] = self.next_frame[row][col];
             }
         }
         self.needs_refresh = false;
     }
 
     pub fn update_background_noise(&mut self) {
+        if self.paused {
+            return;
+        }
+
         let mut rng = rand::rng();
         for row in 0..self.height {
             for col in 0..self.width {
@@ -185,6 +230,10 @@ impl<'a> Rain<'a> {
     }
 
     pub fn update_lines(&mut self, now: u128) {
+        if self.paused {
+            return;
+        }
+
         if now - self.line_added_at > 80 {
             self.line_added_at = now;
             let mut rng = rand::rng();
@@ -243,7 +292,11 @@ impl<'a> Rain<'a> {
         }
     }
 
-    pub fn refresh(&mut self) {
-        self.needs_refresh = true;
+    pub fn pause(&mut self) {
+        self.paused = true
+    }
+
+    pub fn play(&mut self) {
+        self.paused = false
     }
 }
