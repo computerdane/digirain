@@ -94,6 +94,7 @@ fn main() {
     )
     .unwrap();
 
+    let target_delta = 15;
     let mut start;
     let mut end = current_time_millis();
     loop {
@@ -104,18 +105,15 @@ fn main() {
 
             rain.update_background_noise();
             rain.update_lines(now);
-            // execute!(
-            //     stdout(),
-            //     SetBackgroundColor(Color::Reset),
-            //     Clear(ClearType::All)
-            // )
-            // .unwrap();
             rain.render();
         }
         end = current_time_millis();
+        let delta = end - start;
 
-        if end - start < 15 {
-            thread::sleep(Duration::from_millis(15 - ((end - start) as u64)));
+        if delta < target_delta {
+            thread::sleep(Duration::from_millis((target_delta - delta) as u64));
+        } else {
+            thread::sleep(Duration::from_millis(1));
         }
     }
 }
