@@ -147,11 +147,19 @@ impl<'a> Rain<'a> {
         }
 
         if self.width <= prev_width {
-            for line in self.prev_frame.iter_mut() {
-                *line = line[0..self.width].to_vec();
+            for row in self.prev_frame.iter_mut() {
+                *row = row[0..self.width].to_vec();
             }
-            for line in self.next_frame.iter_mut() {
-                *line = line[0..self.width].to_vec();
+            for row in self.next_frame.iter_mut() {
+                *row = row[0..self.width].to_vec();
+            }
+            let mut i = 0;
+            while i < self.lines.len() {
+                if self.lines[i].col as usize >= self.width {
+                    self.lines.remove(i);
+                } else {
+                    i += 1;
+                }
             }
         } else {
             for row in 0..self.height {
@@ -236,23 +244,25 @@ impl<'a> Rain<'a> {
 
         if now - self.line_added_at > 80 {
             self.line_added_at = now;
-            let mut rng = rand::rng();
-            let mut line = Line {
-                row: rng.random_range(-100..0),
-                col: rng.random_range(0..(self.width as i32)),
-                len: rng.random_range(30..40),
-                update_interval: rng.random_range(30..60),
-                last_updated_at: 0,
-                colors: vec![],
-            };
-            for i in 0..line.len {
-                line.colors.push(interp(
-                    self.color_bright,
-                    self.color,
-                    i as f64 / (line.len - 1) as f64,
-                ));
+            if self.lines.len() < self.width {
+                let mut rng = rand::rng();
+                let mut line = Line {
+                    row: rng.random_range(-100..0),
+                    col: rng.random_range(0..(self.width as i32)),
+                    len: rng.random_range(30..40),
+                    update_interval: rng.random_range(30..60),
+                    last_updated_at: 0,
+                    colors: vec![],
+                };
+                for i in 0..line.len {
+                    line.colors.push(interp(
+                        self.color_bright,
+                        self.color,
+                        i as f64 / (line.len - 1) as f64,
+                    ));
+                }
+                self.lines.push(line);
             }
-            self.lines.push(line);
         }
 
         let (w, h) = (self.width as i32, self.height as i32);
