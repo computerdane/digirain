@@ -81,6 +81,8 @@ impl Display for Drop {
 pub struct Rain {
     width: usize,
     height: usize,
+    pub cleared: bool,
+    pub line_added_at: u128,
     prev_frame: Box<Vec<Vec<Drop>>>,
     next_frame: Box<Vec<Vec<Drop>>>,
     lines: Vec<Line>,
@@ -94,14 +96,15 @@ impl Rain {
         self.next_frame = Box::new(vec![vec![Drop::new(); self.width]; self.height]);
     }
 
-    pub fn clear(&self) {
-        print!(
-            "{}",
-            vec![SYMBOLS[0].to_string().repeat(self.width); self.height].join("\n")
-        );
-    }
-
     pub fn render(&mut self) {
+        if !self.cleared {
+            print!(
+                "{}",
+                vec![SYMBOLS[0].to_string().repeat(self.width); self.height].join("\n")
+            );
+            self.cleared = true;
+        }
+
         let mut delta = String::new();
         for row in 0..self.height {
             for col in 0..self.width {
@@ -157,6 +160,19 @@ impl Rain {
     }
 
     pub fn update_lines(&mut self, now: u128) {
+        if now - self.line_added_at > 80 {
+            self.line_added_at = now;
+            let mut rng = rand::rng();
+            let line = Line {
+                row: rng.random_range(-100..0),
+                col: rng.random_range(0..(self.width as i32)),
+                len: rng.random_range(30..40),
+                update_interval: rng.random_range(30..60),
+                last_updated_at: 0,
+            };
+            self.lines.push(line);
+        }
+
         let (w, h) = (self.width as i32, self.height as i32);
 
         for line in &mut self.lines {
@@ -197,17 +213,5 @@ impl Rain {
                 };
             }
         }
-    }
-
-    pub fn add_line(&mut self) {
-        let mut rng = rand::rng();
-        let line = Line {
-            row: rng.random_range(-100..0),
-            col: rng.random_range(0..(self.width as i32)),
-            len: rng.random_range(30..40),
-            update_interval: rng.random_range(30..60),
-            last_updated_at: 0,
-        };
-        self.lines.push(line);
     }
 }

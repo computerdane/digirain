@@ -54,23 +54,10 @@ fn main() {
     print!("\x1b[48;2;0;0;0m"); // Set background color to black
     print!("\x1b[H\x1b[2J"); // Clear the screen
 
-    let mut cleared = false;
-    let mut line_added_at = 0;
-
     loop {
         {
             let mut rain = rain.lock().unwrap();
             let now = current_time_millis();
-
-            if !cleared {
-                rain.clear();
-                cleared = true;
-            }
-
-            if now - line_added_at > 80 {
-                line_added_at = now;
-                rain.add_line();
-            }
 
             rain.update_background_noise();
             rain.update_lines(now);
