@@ -1,4 +1,4 @@
-use std::io::stdout;
+use std::io::{stdout, BufWriter, Write};
 
 use crossterm::{
     cursor, execute,
@@ -179,17 +179,21 @@ impl<'a> Rain<'a> {
             return;
         }
 
+        let stdout = stdout();
+        let handle = stdout.lock();
+        let mut writer = BufWriter::new(handle);
+
         for row in 0..self.height {
             if self.needs_refresh {
-                execute!(stdout(), cursor::MoveTo(0, row as u16)).unwrap();
+                execute!(writer, cursor::MoveTo(0, row as u16)).unwrap();
             }
             for col in 0..self.width {
                 let drop = self.next_frame[row][col];
                 if self.needs_refresh {
-                    execute!(stdout(), PrintStyledContent(drop)).unwrap();
+                    execute!(writer, PrintStyledContent(drop)).unwrap();
                 } else if self.next_frame[row][col] != self.prev_frame[row][col] {
                     execute!(
-                        stdout(),
+                        writer,
                         cursor::MoveTo(
                             if self.args.half_width { col } else { col * 2 } as u16,
                             row as u16,
@@ -201,6 +205,9 @@ impl<'a> Rain<'a> {
                 self.prev_frame[row][col] = self.next_frame[row][col];
             }
         }
+
+        writer.flush().unwrap();
+
         self.needs_refresh = false;
     }
 
