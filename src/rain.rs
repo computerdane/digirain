@@ -78,10 +78,10 @@ impl<'a> Rain<'a> {
                         PrintStyledContent(drop)
                     )
                     .unwrap();
+                    self.prev_frame[row][col] = self.next_frame[row][col];
                 }
             }
         }
-        self.prev_frame = self.next_frame.clone();
     }
 
     pub fn update_background_noise(&mut self) {
