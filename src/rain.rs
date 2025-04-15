@@ -44,6 +44,12 @@ impl PartialEq for Color {
     }
 }
 
+impl Display for Color {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "\x1b[38;5;{}m", self.to_ansi256())
+    }
+}
+
 #[derive(Clone)]
 pub struct Drop {
     char: char,
@@ -67,7 +73,7 @@ impl PartialEq for Drop {
 
 impl Display for Drop {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "\x1b[38;5;{}m{}", self.color.to_ansi256(), self.char)
+        write!(f, "{}{}", self.color, self.char)
     }
 }
 
@@ -109,15 +115,20 @@ impl Rain {
                             self.next_frame[row][col],
                         ));
                     } else {
-                        delta.push_str(&self.next_frame[row][col].to_string());
+                        if self.next_frame[row][col].color == self.next_frame[row][col - 1].color {
+                            delta.push_str(&self.next_frame[row][col].char.to_string());
+                        } else {
+                            delta.push_str(&self.next_frame[row][col].to_string());
+                        }
                     }
                 } else {
                     print!("{delta}");
                     delta.clear();
                 }
             }
+            print!("{delta}");
+            delta.clear()
         }
-        print!("{delta}");
         self.prev_frame = self.next_frame.clone();
     }
 
