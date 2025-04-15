@@ -1,20 +1,14 @@
 mod rain;
 
 use std::{
-    io::stdout,
-    process,
     sync::{Arc, Mutex},
     thread,
     time::Duration,
 };
 
 use clap::{Parser, ValueEnum};
-use crossterm::{
-    cursor, execute,
-    style::{Attribute, SetAttribute, SetBackgroundColor},
-    terminal::{Clear, ClearType},
-};
-use digirain::{current_time_millis, COLOR_BLACK};
+use crossterm::event::{self, Event, KeyCode};
+use digirain::current_time_millis;
 use rain::Rain;
 use signal_hook::{
     consts::{SIGINT, SIGTERM, SIGWINCH},
@@ -82,20 +76,7 @@ fn main() {
                 Signals::new(&[SIGTERM, SIGINT]).expect("Failed to create signal handler");
             for signal in signals.forever() {
                 match signal {
-                    SIGTERM | SIGINT => {
-                        rain.lock().unwrap().pause();
-
-                        execute!(
-                            stdout(),
-                            SetAttribute(Attribute::Reset),
-                            Clear(ClearType::All),
-                            cursor::MoveTo(0, 0),
-                            cursor::Show
-                        )
-                        .unwrap();
-
-                        process::exit(0);
-                    }
+                    SIGTERM | SIGINT => rain.lock().unwrap().exit(),
                     _ => unreachable!(),
                 };
             }
@@ -108,23 +89,14 @@ fn main() {
             let mut signals = Signals::new(&[SIGWINCH]).expect("Failed to create signal handler");
             for signal in signals.forever() {
                 match signal {
-                    SIGWINCH => {
-                        let mut rain = rain.lock().unwrap();
-                        rain.update_frame_size();
-                    }
+                    SIGWINCH => rain.lock().unwrap().update_frame_size(),
                     _ => unreachable!(),
                 };
             }
         });
     }
 
-    execute!(
-        stdout(),
-        cursor::Hide,
-        SetBackgroundColor(COLOR_BLACK),
-        Clear(ClearType::All)
-    )
-    .unwrap();
+    Rain::start();
 
     let mut start;
     let mut end = current_time_millis();
@@ -132,10 +104,19 @@ fn main() {
         start = end;
         {
             let mut rain = rain.lock().unwrap();
-            let now = current_time_millis();
+
+            if event::poll(Duration::from_secs(0)).unwrap() {
+                if let Event::Key(key_event) = event::read().unwrap() {
+                    match key_event.code {
+                        KeyCode::Char('q') => rain.exit(),
+                        KeyCode::Char(' ') => rain.toggle_paused(),
+                        _ => (),
+                    }
+                }
+            }
 
             rain.update_background_noise();
-            rain.update_lines(now);
+            rain.update_lines(start);
             rain.render();
         }
         end = current_time_millis();

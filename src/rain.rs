@@ -1,9 +1,15 @@
-use std::io::{stdout, BufWriter, Write};
+use std::{
+    io::{stdout, BufWriter, Write},
+    process,
+};
 
 use crossterm::{
     cursor, execute,
-    style::{Color, PrintStyledContent, StyledContent, Stylize},
-    terminal::{self},
+    style::{
+        Attribute, Color, PrintStyledContent, SetAttribute, SetBackgroundColor, StyledContent,
+        Stylize,
+    },
+    terminal::{self, disable_raw_mode, enable_raw_mode, Clear, ClearType},
 };
 use digirain::{
     clamp_min_zero, interp, random_item, COLOR_BLACK, COLOR_WHITE, SYMBOLS, SYMBOLS_HALF,
@@ -172,6 +178,7 @@ impl<'a> Rain<'a> {
                 }
             }
         }
+
         self.needs_refresh = true;
     }
 
@@ -320,7 +327,32 @@ impl<'a> Rain<'a> {
         self.paused = true
     }
 
-    pub fn play(&mut self) {
-        self.paused = false
+    pub fn toggle_paused(&mut self) {
+        self.paused = !self.paused
+    }
+
+    pub fn start() {
+        enable_raw_mode().unwrap();
+        execute!(
+            stdout(),
+            cursor::Hide,
+            SetBackgroundColor(COLOR_BLACK),
+            Clear(ClearType::All)
+        )
+        .unwrap();
+    }
+
+    pub fn exit(&mut self) {
+        self.pause();
+        execute!(
+            stdout(),
+            SetAttribute(Attribute::Reset),
+            Clear(ClearType::All),
+            cursor::MoveTo(0, 0),
+            cursor::Show
+        )
+        .unwrap_or_default();
+        disable_raw_mode().unwrap_or_default();
+        process::exit(0);
     }
 }
