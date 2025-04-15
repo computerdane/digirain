@@ -11,10 +11,10 @@ use std::{
 use clap::{Parser, ValueEnum};
 use crossterm::{
     cursor, execute,
-    style::{Attribute, Color, SetAttribute, SetBackgroundColor},
+    style::{Attribute, SetAttribute, SetBackgroundColor},
     terminal::{Clear, ClearType},
 };
-use digirain::current_time_millis;
+use digirain::{current_time_millis, COLOR_BLACK};
 use rain::Rain;
 use signal_hook::{
     consts::{SIGINT, SIGTERM, SIGWINCH},
@@ -72,7 +72,9 @@ fn main() {
             for signal in signals.forever() {
                 match signal {
                     SIGWINCH => {
-                        rain.lock().unwrap().update_frame_size();
+                        let mut rain = rain.lock().unwrap();
+                        rain.update_frame_size();
+                        rain.refresh();
                     }
                     _ => unreachable!(),
                 };
@@ -83,7 +85,7 @@ fn main() {
     execute!(
         stdout(),
         cursor::Hide,
-        SetBackgroundColor(Color::Rgb { r: 0, g: 0, b: 0 }),
+        SetBackgroundColor(COLOR_BLACK),
         Clear(ClearType::All)
     )
     .unwrap();
@@ -95,6 +97,12 @@ fn main() {
 
             rain.update_background_noise();
             rain.update_lines(now);
+            // execute!(
+            //     stdout(),
+            //     SetBackgroundColor(Color::Reset),
+            //     Clear(ClearType::All)
+            // )
+            // .unwrap();
             rain.render();
         }
 

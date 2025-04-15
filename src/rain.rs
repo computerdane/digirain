@@ -5,17 +5,12 @@ use crossterm::{
     style::{Color, PrintStyledContent, StyledContent, Stylize},
     terminal::{self},
 };
-use digirain::{clamp_min_zero, interp, random_item, SYMBOLS, SYMBOLS_HALF};
+use digirain::{
+    clamp_min_zero, interp, random_item, COLOR_BLACK, COLOR_WHITE, SYMBOLS, SYMBOLS_HALF,
+};
 use rand::Rng;
 
 use crate::Args;
-
-const COLOR_BLACK: Color = Color::Rgb { r: 0, g: 0, b: 0 };
-const COLOR_WHITE: Color = Color::Rgb {
-    r: 0xff,
-    g: 0xff,
-    b: 0xff,
-};
 
 pub struct Line {
     row: i32,
@@ -38,6 +33,7 @@ pub struct Rain<'a> {
     color: Color,
     color_dim: Color,
     color_bright: Color,
+    needs_refresh: bool,
 }
 
 impl<'a> Rain<'a> {
@@ -54,6 +50,7 @@ impl<'a> Rain<'a> {
             color: COLOR_BLACK,
             color_dim: COLOR_BLACK,
             color_bright: COLOR_BLACK,
+            needs_refresh: false,
         };
         rain.symbols = if rain.args.half_width {
             &SYMBOLS_HALF
@@ -129,13 +126,19 @@ impl<'a> Rain<'a> {
         let blank_symbol = self.symbols[0].with(COLOR_BLACK);
         self.prev_frame = Box::new(vec![vec![blank_symbol; self.width]; self.height]);
         self.next_frame = Box::new(vec![vec![blank_symbol; self.width]; self.height]);
+        let mut rng = rand::rng();
+        for row in 0..self.height {
+            for col in 0..self.width {
+                self.next_frame[row][col] = random_item(self.symbols, &mut rng).with(COLOR_BLACK);
+            }
+        }
     }
 
     pub fn render(&mut self) {
         for row in 0..self.height {
             for col in 0..self.width {
                 let drop = self.next_frame[row][col];
-                if self.next_frame[row][col] != self.prev_frame[row][col] {
+                if self.needs_refresh || self.next_frame[row][col] != self.prev_frame[row][col] {
                     execute!(
                         stdout(),
                         cursor::MoveTo(
@@ -149,6 +152,7 @@ impl<'a> Rain<'a> {
                 }
             }
         }
+        self.needs_refresh = false;
     }
 
     pub fn update_background_noise(&mut self) {
@@ -156,8 +160,9 @@ impl<'a> Rain<'a> {
         for row in 0..self.height {
             for col in 0..self.width {
                 let drop = &mut self.next_frame[row][col];
+                let color = drop.style().foreground_color.unwrap();
 
-                if rng.random_range(0..100) < 4 {
+                if color != COLOR_BLACK && rng.random_range(0..100) < 4 {
                     *drop = StyledContent::new(*drop.style(), random_item(self.symbols, &mut rng));
                 }
 
@@ -166,6 +171,14 @@ impl<'a> Rain<'a> {
                     *drop = drop.with(self.color)
                 } else if r < 10 {
                     *drop = drop.with(self.color_dim)
+                }
+
+                let r = rng.random_range(0..100);
+                if r < 20 {
+                    let color = drop.style().foreground_color.unwrap();
+                    if color != COLOR_BLACK {
+                        *drop = drop.content().with(interp(color, COLOR_BLACK, 0.92));
+                    }
                 }
             }
         }
@@ -185,8 +198,8 @@ impl<'a> Rain<'a> {
             };
             for i in 0..line.len {
                 line.colors.push(interp(
-                    self.color,
                     self.color_bright,
+                    self.color,
                     i as f64 / (line.len - 1) as f64,
                 ));
             }
@@ -214,7 +227,7 @@ impl<'a> Rain<'a> {
         for line in &self.lines {
             let col = clamp_min_zero(line.col, w - 1) as usize;
             let mut color_index = 0;
-            for row in (clamp_min_zero(line.row - line.len, h)..clamp_min_zero(line.row, h)).rev() {
+            for row in clamp_min_zero(line.row - line.len, h)..clamp_min_zero(line.row, h) {
                 let drop = &mut self.next_frame[row as usize][col];
                 *drop = drop.content().with(line.colors[color_index]);
                 color_index += 1;
@@ -228,5 +241,9 @@ impl<'a> Rain<'a> {
                 *drop = drop.content().with(COLOR_WHITE);
             }
         }
+    }
+
+    pub fn refresh(&mut self) {
+        self.needs_refresh = true;
     }
 }

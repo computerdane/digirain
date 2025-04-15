@@ -21,6 +21,13 @@ pub const SYMBOLS: [char; 73] = [
     'ハ', 'フ', 'ノ', 'ホ', 'メ', 'ト', 'チ', 'ニ', 'ツ',
 ];
 
+pub const COLOR_BLACK: Color = Color::Rgb { r: 0, g: 0, b: 0 };
+pub const COLOR_WHITE: Color = Color::Rgb {
+    r: 0xff,
+    g: 0xff,
+    b: 0xff,
+};
+
 pub fn random_item<T: Copy>(a: &[T], rng: &mut ThreadRng) -> T {
     let random_index = rng.random_range(0..a.len());
     a[random_index]
