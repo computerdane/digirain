@@ -3,6 +3,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use crossterm::style::Color;
 use rand::{rngs::ThreadRng, Rng};
 
 pub const SYMBOLS_HALF: [char; 75] = [
@@ -38,4 +39,30 @@ pub fn clamp<T: Ord>(value: T, min_value: T, max_value: T) -> T {
 
 pub fn clamp_min_zero<T: Ord + Default>(value: T, len: T) -> T {
     clamp(value, T::default(), len)
+}
+
+pub fn interp(a: Color, b: Color, x: f64) -> Color {
+    if x < 0.0 || x > 1.0 {
+        panic!("interp x out of range");
+    }
+    if let Color::Rgb {
+        r: r_a,
+        g: g_a,
+        b: b_a,
+    } = a
+    {
+        if let Color::Rgb {
+            r: r_b,
+            g: g_b,
+            b: b_b,
+        } = b
+        {
+            return Color::Rgb {
+                r: (x * r_a as f64 + (1.0 - x) * r_b as f64) as u8,
+                g: (x * g_a as f64 + (1.0 - x) * g_b as f64) as u8,
+                b: (x * b_a as f64 + (1.0 - x) * b_b as f64) as u8,
+            };
+        }
+    }
+    panic!("colors passed to interp must be Color::Rgb");
 }

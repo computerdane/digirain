@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use crossterm::{
     cursor, execute,
     style::{Attribute, Color, SetAttribute, SetBackgroundColor},
@@ -21,10 +21,20 @@ use signal_hook::{
     iterator::Signals,
 };
 
+#[derive(ValueEnum, Clone)]
+enum RainColor {
+    Red,
+    Green,
+    Blue,
+}
+
 #[derive(Parser)]
 pub struct Args {
     #[arg(long)]
     half_width: bool,
+
+    #[arg(long, value_enum, default_value_t = RainColor::Green)]
+    color: RainColor,
 }
 
 fn main() {

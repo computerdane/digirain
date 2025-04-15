@@ -5,10 +5,17 @@ use crossterm::{
     style::{Color, PrintStyledContent, StyledContent, Stylize},
     terminal::{self},
 };
-use digirain::{clamp_min_zero, random_item, SYMBOLS, SYMBOLS_HALF};
+use digirain::{clamp_min_zero, interp, random_item, SYMBOLS, SYMBOLS_HALF};
 use rand::Rng;
 
 use crate::Args;
+
+const COLOR_BLACK: Color = Color::Rgb { r: 0, g: 0, b: 0 };
+const COLOR_WHITE: Color = Color::Rgb {
+    r: 0xff,
+    g: 0xff,
+    b: 0xff,
+};
 
 pub struct Line {
     row: i32,
@@ -16,6 +23,7 @@ pub struct Line {
     len: i32,
     update_interval: u128,
     last_updated_at: u128,
+    colors: Vec<Color>,
 }
 
 pub struct Rain<'a> {
@@ -27,6 +35,9 @@ pub struct Rain<'a> {
     lines: Vec<Line>,
     args: Args,
     symbols: &'a [char],
+    color: Color,
+    color_dim: Color,
+    color_bright: Color,
 }
 
 impl<'a> Rain<'a> {
@@ -40,11 +51,67 @@ impl<'a> Rain<'a> {
             lines: Vec::default(),
             args,
             symbols: &[],
+            color: COLOR_BLACK,
+            color_dim: COLOR_BLACK,
+            color_bright: COLOR_BLACK,
         };
         rain.symbols = if rain.args.half_width {
             &SYMBOLS_HALF
         } else {
             &SYMBOLS
+        };
+        match rain.args.color {
+            crate::RainColor::Red => {
+                rain.color = Color::Rgb {
+                    r: 0x88,
+                    g: 0,
+                    b: 0,
+                };
+                rain.color_dim = Color::Rgb {
+                    r: 0x66,
+                    g: 0,
+                    b: 0,
+                };
+                rain.color_bright = Color::Rgb {
+                    r: 0xff,
+                    g: 0,
+                    b: 0,
+                };
+            }
+            crate::RainColor::Green => {
+                rain.color = Color::Rgb {
+                    r: 0,
+                    g: 0x88,
+                    b: 0,
+                };
+                rain.color_dim = Color::Rgb {
+                    r: 0,
+                    g: 0x66,
+                    b: 0,
+                };
+                rain.color_bright = Color::Rgb {
+                    r: 0,
+                    g: 0xff,
+                    b: 0,
+                };
+            }
+            crate::RainColor::Blue => {
+                rain.color = Color::Rgb {
+                    r: 0,
+                    g: 0,
+                    b: 0x88,
+                };
+                rain.color_dim = Color::Rgb {
+                    r: 0,
+                    g: 0,
+                    b: 0x66,
+                };
+                rain.color_bright = Color::Rgb {
+                    r: 0,
+                    g: 0,
+                    b: 0xff,
+                };
+            }
         };
         rain
     }
@@ -59,7 +126,7 @@ impl<'a> Rain<'a> {
             } as usize,
             height as usize,
         );
-        let blank_symbol = self.symbols[0].with(Color::Rgb { r: 0, g: 0, b: 0 });
+        let blank_symbol = self.symbols[0].with(COLOR_BLACK);
         self.prev_frame = Box::new(vec![vec![blank_symbol; self.width]; self.height]);
         self.next_frame = Box::new(vec![vec![blank_symbol; self.width]; self.height]);
     }
@@ -95,18 +162,10 @@ impl<'a> Rain<'a> {
                 }
 
                 let r = rng.random_range(0..1000);
-                if r < 10 {
-                    *drop = drop.with(Color::Rgb {
-                        r: 0,
-                        g: 0x66,
-                        b: 0,
-                    })
-                } else if r < 7 {
-                    *drop = drop.with(Color::Rgb {
-                        r: 0,
-                        g: 0x88,
-                        b: 0,
-                    })
+                if r < 7 {
+                    *drop = drop.with(self.color)
+                } else if r < 10 {
+                    *drop = drop.with(self.color_dim)
                 }
             }
         }
@@ -116,13 +175,21 @@ impl<'a> Rain<'a> {
         if now - self.line_added_at > 80 {
             self.line_added_at = now;
             let mut rng = rand::rng();
-            let line = Line {
+            let mut line = Line {
                 row: rng.random_range(-100..0),
                 col: rng.random_range(0..(self.width as i32)),
                 len: rng.random_range(30..40),
                 update_interval: rng.random_range(30..60),
                 last_updated_at: 0,
+                colors: vec![],
             };
+            for i in 0..line.len {
+                line.colors.push(interp(
+                    self.color,
+                    self.color_bright,
+                    i as f64 / (line.len - 1) as f64,
+                ));
+            }
             self.lines.push(line);
         }
 
@@ -146,25 +213,19 @@ impl<'a> Rain<'a> {
 
         for line in &self.lines {
             let col = clamp_min_zero(line.col, w - 1) as usize;
+            let mut color_index = 0;
             for row in (clamp_min_zero(line.row - line.len, h)..clamp_min_zero(line.row, h)).rev() {
                 let drop = &mut self.next_frame[row as usize][col];
-                *drop = drop.content().with(Color::Rgb {
-                    r: 0,
-                    g: 0xff - ((line.row - row) * 5) as u8,
-                    b: 0,
-                })
+                *drop = drop.content().with(line.colors[color_index]);
+                color_index += 1;
             }
             for row in clamp_min_zero(line.row + 1, h)..clamp_min_zero(line.row + 10, h) {
                 let drop = &mut self.next_frame[row as usize][col];
-                *drop = drop.content().with(Color::Rgb { r: 0, g: 0, b: 0 })
+                *drop = drop.content().with(COLOR_BLACK);
             }
             if 0 <= line.row && line.row < h {
                 let drop = &mut self.next_frame[line.row as usize][col];
-                *drop = drop.content().with(Color::Rgb {
-                    r: 0xff,
-                    g: 0xff,
-                    b: 0xff,
-                })
+                *drop = drop.content().with(COLOR_WHITE);
             }
         }
     }
