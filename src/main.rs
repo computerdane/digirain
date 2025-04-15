@@ -94,7 +94,10 @@ fn main() {
     )
     .unwrap();
 
+    let mut start;
+    let mut end = current_time_millis();
     loop {
+        start = end;
         {
             let mut rain = rain.lock().unwrap();
             let now = current_time_millis();
@@ -109,7 +112,10 @@ fn main() {
             // .unwrap();
             rain.render();
         }
+        end = current_time_millis();
 
-        thread::sleep(Duration::from_millis(15));
+        if end - start < 15 {
+            thread::sleep(Duration::from_millis(15 - ((end - start) as u64)));
+        }
     }
 }
