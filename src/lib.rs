@@ -4,7 +4,7 @@ use std::{
 };
 
 use crossterm::style::Color;
-use rand::{rngs::ThreadRng, Rng};
+use rand::{rngs::SmallRng, Rng};
 
 pub const SYMBOLS_HALF: [char; 75] = [
     ' ', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R',
@@ -28,7 +28,7 @@ pub const COLOR_WHITE: Color = Color::Rgb {
     b: 0xff,
 };
 
-pub fn random_item<T: Copy>(a: &[T], rng: &mut ThreadRng) -> T {
+pub fn random_item<T: Copy>(a: &[T], rng: &mut SmallRng) -> T {
     let random_index = rng.random_range(0..a.len());
     a[random_index]
 }

@@ -8,7 +8,7 @@ use crossterm::{
 use digirain::{
     clamp_min_zero, interp, random_item, COLOR_BLACK, COLOR_WHITE, SYMBOLS, SYMBOLS_HALF,
 };
-use rand::Rng;
+use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 use crate::Args;
 
@@ -35,6 +35,7 @@ pub struct Rain<'a> {
     color_bright: Color,
     needs_refresh: bool,
     paused: bool,
+    rng: SmallRng,
 }
 
 impl<'a> Rain<'a> {
@@ -53,6 +54,7 @@ impl<'a> Rain<'a> {
             color_bright: COLOR_BLACK,
             needs_refresh: false,
             paused: false,
+            rng: rand::rngs::SmallRng::from_os_rng(),
         };
         rain.symbols = if rain.args.half_width {
             &SYMBOLS_HALF
@@ -127,7 +129,6 @@ impl<'a> Rain<'a> {
             height as usize,
         );
 
-        let mut rng = rand::rng();
         let blank_symbol = self.symbols[0].with(COLOR_BLACK);
 
         if self.height <= prev_height {
@@ -141,7 +142,7 @@ impl<'a> Rain<'a> {
             for row in prev_height..self.height {
                 for col in 0..self.width {
                     self.next_frame[row][col] =
-                        random_item(self.symbols, &mut rng).with(COLOR_BLACK);
+                        random_item(self.symbols, &mut self.rng).with(COLOR_BLACK);
                 }
             }
         }
@@ -167,7 +168,7 @@ impl<'a> Rain<'a> {
                 self.next_frame[row].resize(self.width, blank_symbol);
                 for col in prev_width..self.width {
                     self.next_frame[row][col] =
-                        random_item(self.symbols, &mut rng).with(COLOR_BLACK);
+                        random_item(self.symbols, &mut self.rng).with(COLOR_BLACK);
                 }
             }
         }
@@ -216,24 +217,24 @@ impl<'a> Rain<'a> {
             return;
         }
 
-        let mut rng = rand::rng();
         for row in 0..self.height {
             for col in 0..self.width {
                 let drop = &mut self.next_frame[row][col];
                 let color = drop.style().foreground_color.unwrap();
 
-                if color != COLOR_BLACK && rng.random_bool(self.args.prob_symbol_change) {
-                    *drop = StyledContent::new(*drop.style(), random_item(self.symbols, &mut rng));
+                if color != COLOR_BLACK && self.rng.random_bool(self.args.prob_symbol_change) {
+                    *drop =
+                        StyledContent::new(*drop.style(), random_item(self.symbols, &mut self.rng));
                 }
 
-                if rng.random_bool(self.args.prob_color) {
+                if self.rng.random_bool(self.args.prob_color) {
                     *drop = drop.with(self.color)
                 }
-                if rng.random_bool(self.args.prob_color_dim) {
+                if self.rng.random_bool(self.args.prob_color_dim) {
                     *drop = drop.with(self.color_dim)
                 }
 
-                if rng.random_bool(self.args.prob_color_fade) {
+                if self.rng.random_bool(self.args.prob_color_fade) {
                     let color = drop.style().foreground_color.unwrap();
                     if color != COLOR_BLACK {
                         *drop = drop.content().with(interp(
@@ -255,12 +256,13 @@ impl<'a> Rain<'a> {
         if now - self.line_added_at > self.args.line_add_interval {
             self.line_added_at = now;
             if self.lines.len() < self.width {
-                let mut rng = rand::rng();
                 let mut line = Line {
-                    row: rng.random_range(self.args.line_row_start..0),
-                    col: rng.random_range(0..(self.width as i32)),
-                    len: rng.random_range(self.args.min_line_len..=self.args.max_line_len),
-                    update_interval: rng.random_range(
+                    row: self.rng.random_range(self.args.line_row_start..0),
+                    col: self.rng.random_range(0..(self.width as i32)),
+                    len: self
+                        .rng
+                        .random_range(self.args.min_line_len..=self.args.max_line_len),
+                    update_interval: self.rng.random_range(
                         self.args.min_line_update_interval..=self.args.max_line_update_interval,
                     ),
                     last_updated_at: 0,
