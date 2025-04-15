@@ -1,6 +1,7 @@
 mod rain;
 
 use std::{
+    io::stdout,
     process,
     sync::{Arc, Mutex},
     thread,
@@ -8,6 +9,11 @@ use std::{
 };
 
 use clap::Parser;
+use crossterm::{
+    cursor, execute,
+    style::{Attribute, Color, SetAttribute, SetBackgroundColor},
+    terminal::{Clear, ClearType},
+};
 use digirain::current_time_millis;
 use rain::Rain;
 use signal_hook::{
@@ -33,9 +39,14 @@ fn main() {
         for signal in signals.forever() {
             match signal {
                 SIGTERM | SIGINT => {
-                    print!("\x1b[0m"); // Set text back to normal
-                    print!("\x1b[H\x1b[2J"); // Clear the screen
-                    print!("\x1b[?25h"); // Show the cursor
+                    execute!(
+                        stdout(),
+                        SetAttribute(Attribute::Reset),
+                        Clear(ClearType::All),
+                        cursor::MoveTo(0, 0),
+                        cursor::Show
+                    )
+                    .unwrap();
 
                     process::exit(0);
                 }
@@ -59,9 +70,13 @@ fn main() {
         });
     }
 
-    print!("\x1b[?25l"); // Hide the cursor
-    print!("\x1b[48;2;0;0;0m"); // Set background color to black
-    print!("\x1b[H\x1b[2J"); // Clear the screen
+    execute!(
+        stdout(),
+        cursor::Hide,
+        SetBackgroundColor(Color::Rgb { r: 0, g: 0, b: 0 }),
+        Clear(ClearType::All)
+    )
+    .unwrap();
 
     loop {
         {

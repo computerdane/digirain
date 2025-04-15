@@ -1,8 +1,12 @@
-use std::fmt::Display;
+use std::io::stdout;
 
+use crossterm::{
+    cursor, execute,
+    style::{Color, PrintStyledContent, StyledContent, Stylize},
+    terminal::{self},
+};
 use digirain::{clamp_min_zero, random_item, SYMBOLS, SYMBOLS_HALF};
 use rand::Rng;
-use termion::terminal_size;
 
 use crate::Args;
 
@@ -14,78 +18,12 @@ pub struct Line {
     last_updated_at: u128,
 }
 
-#[derive(Default, Clone)]
-pub struct Color {
-    r: u8,
-    g: u8,
-    b: u8,
-}
-
-impl Color {
-    pub fn to_ansi256(&self) -> u8 {
-        if self.r == self.g && self.g == self.b {
-            if self.r < 8 {
-                16
-            } else if self.r > 248 {
-                231
-            } else {
-                ((self.r as u16 - 8) / 10) as u8 + 232
-            }
-        } else {
-            let r = (self.r as u16 * 5 / 255) as u8;
-            let g = (self.g as u16 * 5 / 255) as u8;
-            let b = (self.b as u16 * 5 / 255) as u8;
-            16 + 36 * r + 6 * g + b
-        }
-    }
-}
-
-impl PartialEq for Color {
-    fn eq(&self, other: &Self) -> bool {
-        self.r == other.r && self.g == other.g && self.b == other.b
-    }
-}
-
-impl Display for Color {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "\x1b[38;5;{}m", self.to_ansi256())
-    }
-}
-
-#[derive(Clone)]
-pub struct Drop {
-    char: char,
-    color: Color,
-}
-
-impl Drop {
-    fn new() -> Self {
-        Drop {
-            char: ' ',
-            color: Color::default(),
-        }
-    }
-}
-
-impl PartialEq for Drop {
-    fn eq(&self, other: &Self) -> bool {
-        self.char == other.char && self.color == other.color
-    }
-}
-
-impl Display for Drop {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}{}", self.color, self.char)
-    }
-}
-
 pub struct Rain<'a> {
     width: usize,
     height: usize,
-    pub cleared: bool,
-    pub line_added_at: u128,
-    prev_frame: Box<Vec<Vec<Drop>>>,
-    next_frame: Box<Vec<Vec<Drop>>>,
+    line_added_at: u128,
+    prev_frame: Box<Vec<Vec<StyledContent<char>>>>,
+    next_frame: Box<Vec<Vec<StyledContent<char>>>>,
     lines: Vec<Line>,
     args: Args,
     symbols: &'a [char],
@@ -96,7 +34,6 @@ impl<'a> Rain<'a> {
         let mut rain = Rain {
             width: 0,
             height: 0,
-            cleared: false,
             line_added_at: 0,
             prev_frame: Box::default(),
             next_frame: Box::default(),
@@ -113,7 +50,7 @@ impl<'a> Rain<'a> {
     }
 
     pub fn update_frame_size(&mut self) {
-        let (width, height) = terminal_size().expect("Failed to get terminal size");
+        let (width, height) = terminal::size().unwrap();
         (self.width, self.height) = (
             if self.args.half_width {
                 width
@@ -122,45 +59,27 @@ impl<'a> Rain<'a> {
             } as usize,
             height as usize,
         );
-        self.prev_frame = Box::new(vec![vec![Drop::new(); self.width]; self.height]);
-        self.next_frame = Box::new(vec![vec![Drop::new(); self.width]; self.height]);
+        let blank_symbol = self.symbols[0].with(Color::Rgb { r: 0, g: 0, b: 0 });
+        self.prev_frame = Box::new(vec![vec![blank_symbol; self.width]; self.height]);
+        self.next_frame = Box::new(vec![vec![blank_symbol; self.width]; self.height]);
     }
 
     pub fn render(&mut self) {
-        if !self.cleared {
-            print!(
-                "{}",
-                vec![self.symbols[0].to_string().repeat(self.width); self.height].join("\n")
-            );
-            self.cleared = true;
-        }
-
-        let mut delta = String::new();
         for row in 0..self.height {
             for col in 0..self.width {
+                let drop = self.next_frame[row][col];
                 if self.next_frame[row][col] != self.prev_frame[row][col] {
-                    if delta.is_empty() {
-                        // Move the cursor to (row, col) and print the updated character
-                        delta.push_str(&format!(
-                            "\x1b[{};{}H{}",
-                            row + 1,
-                            if self.args.half_width { col } else { col * 2 } + 1,
-                            self.next_frame[row][col],
-                        ));
-                    } else {
-                        if self.next_frame[row][col].color == self.next_frame[row][col - 1].color {
-                            delta.push_str(&self.next_frame[row][col].char.to_string());
-                        } else {
-                            delta.push_str(&self.next_frame[row][col].to_string());
-                        }
-                    }
-                } else {
-                    print!("{delta}");
-                    delta.clear();
+                    execute!(
+                        stdout(),
+                        cursor::MoveTo(
+                            if self.args.half_width { col } else { col * 2 } as u16,
+                            row as u16,
+                        ),
+                        PrintStyledContent(drop)
+                    )
+                    .unwrap();
                 }
             }
-            print!("{delta}");
-            delta.clear()
         }
         self.prev_frame = self.next_frame.clone();
     }
@@ -172,19 +91,23 @@ impl<'a> Rain<'a> {
                 let drop = &mut self.next_frame[row][col];
 
                 if rng.random_range(0..100) < 4 {
-                    drop.char = random_item(self.symbols, &mut rng);
+                    *drop = StyledContent::new(*drop.style(), random_item(self.symbols, &mut rng));
                 }
 
                 let r = rng.random_range(0..1000);
                 if r < 10 {
-                    drop.color.g = 0x66;
+                    *drop = drop.with(Color::Rgb {
+                        r: 0,
+                        g: 0x66,
+                        b: 0,
+                    })
+                } else if r < 7 {
+                    *drop = drop.with(Color::Rgb {
+                        r: 0,
+                        g: 0x88,
+                        b: 0,
+                    })
                 }
-                if r < 7 {
-                    drop.color.g = 0x88;
-                }
-
-                drop.color.r = 0;
-                drop.color.b = 0;
             }
         }
     }
@@ -223,24 +146,25 @@ impl<'a> Rain<'a> {
 
         for line in &self.lines {
             let col = clamp_min_zero(line.col, w - 1) as usize;
-            for row in
-                (clamp_min_zero(line.row - line.len, h - 1)..clamp_min_zero(line.row, h)).rev()
-            {
-                self.next_frame[row as usize][col].color = Color {
+            for row in (clamp_min_zero(line.row - line.len, h)..clamp_min_zero(line.row, h)).rev() {
+                let drop = &mut self.next_frame[row as usize][col];
+                *drop = drop.content().with(Color::Rgb {
                     r: 0,
                     g: 0xff - ((line.row - row) * 5) as u8,
                     b: 0,
-                };
+                })
             }
-            for row in clamp_min_zero(line.row + 1, h - 1)..clamp_min_zero(line.row + 10, h) {
-                self.next_frame[row as usize][col].color = Color::default();
+            for row in clamp_min_zero(line.row + 1, h)..clamp_min_zero(line.row + 10, h) {
+                let drop = &mut self.next_frame[row as usize][col];
+                *drop = drop.content().with(Color::Rgb { r: 0, g: 0, b: 0 })
             }
             if 0 <= line.row && line.row < h {
-                self.next_frame[line.row as usize][col].color = Color {
+                let drop = &mut self.next_frame[line.row as usize][col];
+                *drop = drop.content().with(Color::Rgb {
                     r: 0xff,
                     g: 0xff,
                     b: 0xff,
-                };
+                })
             }
         }
     }
