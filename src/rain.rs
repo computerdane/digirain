@@ -1,8 +1,10 @@
 use std::fmt::Display;
 
-use digirain::{clamp_min_zero, random_symbol, SYMBOLS};
+use digirain::{clamp_min_zero, random_item, SYMBOLS, SYMBOLS_HALF};
 use rand::Rng;
 use termion::terminal_size;
+
+use crate::Args;
 
 pub struct Line {
     row: i32,
@@ -77,8 +79,7 @@ impl Display for Drop {
     }
 }
 
-#[derive(Default)]
-pub struct Rain {
+pub struct Rain<'a> {
     width: usize,
     height: usize,
     pub cleared: bool,
@@ -86,12 +87,41 @@ pub struct Rain {
     prev_frame: Box<Vec<Vec<Drop>>>,
     next_frame: Box<Vec<Vec<Drop>>>,
     lines: Vec<Line>,
+    args: Args,
+    symbols: &'a [char],
 }
 
-impl Rain {
+impl<'a> Rain<'a> {
+    pub fn new(args: Args) -> Self {
+        let mut rain = Rain {
+            width: 0,
+            height: 0,
+            cleared: false,
+            line_added_at: 0,
+            prev_frame: Box::default(),
+            next_frame: Box::default(),
+            lines: Vec::default(),
+            args,
+            symbols: &[],
+        };
+        rain.symbols = if rain.args.half_width {
+            &SYMBOLS_HALF
+        } else {
+            &SYMBOLS
+        };
+        rain
+    }
+
     pub fn update_frame_size(&mut self) {
         let (width, height) = terminal_size().expect("Failed to get terminal size");
-        (self.width, self.height) = ((width / 2) as usize, (height) as usize);
+        (self.width, self.height) = (
+            if self.args.half_width {
+                width
+            } else {
+                width / 2
+            } as usize,
+            height as usize,
+        );
         self.prev_frame = Box::new(vec![vec![Drop::new(); self.width]; self.height]);
         self.next_frame = Box::new(vec![vec![Drop::new(); self.width]; self.height]);
     }
@@ -100,7 +130,7 @@ impl Rain {
         if !self.cleared {
             print!(
                 "{}",
-                vec![SYMBOLS[0].to_string().repeat(self.width); self.height].join("\n")
+                vec![self.symbols[0].to_string().repeat(self.width); self.height].join("\n")
             );
             self.cleared = true;
         }
@@ -114,7 +144,7 @@ impl Rain {
                         delta.push_str(&format!(
                             "\x1b[{};{}H{}",
                             row + 1,
-                            (col * 2) + 1,
+                            if self.args.half_width { col } else { col * 2 } + 1,
                             self.next_frame[row][col],
                         ));
                     } else {
@@ -142,7 +172,7 @@ impl Rain {
                 let drop = &mut self.next_frame[row][col];
 
                 if rng.random_range(0..100) < 4 {
-                    drop.char = random_symbol(&mut rng);
+                    drop.char = random_item(self.symbols, &mut rng);
                 }
 
                 let r = rng.random_range(0..1000);

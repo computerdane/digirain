@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use clap::Parser;
 use digirain::current_time_millis;
 use rain::Rain;
 use signal_hook::{
@@ -14,8 +15,16 @@ use signal_hook::{
     iterator::Signals,
 };
 
+#[derive(Parser)]
+pub struct Args {
+    #[arg(long)]
+    half_width: bool,
+}
+
 fn main() {
-    let rain = Arc::new(Mutex::new(Rain::default()));
+    let args = Args::parse();
+
+    let rain = Arc::new(Mutex::new(Rain::new(args)));
     rain.lock().unwrap().update_frame_size();
 
     thread::spawn(|| {
