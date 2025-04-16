@@ -4,7 +4,7 @@ use std::{
     io::{stdout, Write},
     sync::{
         mpsc::{self, SyncSender},
-        Arc, Mutex,
+        Arc, LazyLock, Mutex,
     },
     thread,
 };
@@ -40,8 +40,6 @@ const BASIC_SYMBOLS: [char; 37] = [
     ' ', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R',
     'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
 ];
-
-static mut IS_BASIC: bool = false;
 
 #[derive(Parser, Clone)]
 struct Args {
@@ -96,6 +94,8 @@ struct Args {
     basic: bool,
 }
 
+static ARGS: LazyLock<Args> = LazyLock::new(|| Args::parse());
+
 #[derive(Clone, PartialEq)]
 struct Rune {
     symbol_index: usize,
@@ -133,20 +133,12 @@ impl Display for Rune {
             self.r(),
             self.g(),
             self.b(),
-            unsafe {
-                if IS_BASIC {
-                    BASIC_SYMBOLS[self.symbol_index]
-                } else {
-                    SPECIAL_SYMBOLS[self.symbol_index]
-                }
+            if ARGS.basic {
+                BASIC_SYMBOLS[self.symbol_index]
+            } else {
+                SPECIAL_SYMBOLS[self.symbol_index]
             },
-            unsafe {
-                if IS_BASIC {
-                    " "
-                } else {
-                    ""
-                }
-            }
+            if ARGS.basic { " " } else { "" }
         )
     }
 }
@@ -194,7 +186,7 @@ impl Display for Rain {
 }
 
 impl Rain {
-    fn new(args: &Args) -> Self {
+    fn new() -> Self {
         Rain {
             width: 0,
             height: 0,
@@ -202,19 +194,20 @@ impl Rain {
             rune_rngs: vec![],
             drops: vec![],
             rng: SmallRng::from_os_rng(),
-            uniform_symbol_index: Uniform::new(0, unsafe {
-                if IS_BASIC {
+            uniform_symbol_index: Uniform::new(
+                0,
+                if ARGS.basic {
                     BASIC_SYMBOLS.len()
                 } else {
                     SPECIAL_SYMBOLS.len()
-                }
-            })
+                },
+            )
             .unwrap(),
-            bern_randomize_symbol: Bernoulli::new(args.prob_randomize_symbol).unwrap(),
-            bern_glow: Bernoulli::new(args.prob_glow).unwrap(),
-            bern_dim: Bernoulli::new(args.prob_dim).unwrap(),
-            bern_drop: Bernoulli::new(args.prob_drop).unwrap(),
-            bern_decay: Bernoulli::new(args.prob_decay).unwrap(),
+            bern_randomize_symbol: Bernoulli::new(ARGS.prob_randomize_symbol).unwrap(),
+            bern_glow: Bernoulli::new(ARGS.prob_glow).unwrap(),
+            bern_dim: Bernoulli::new(ARGS.prob_dim).unwrap(),
+            bern_drop: Bernoulli::new(ARGS.prob_drop).unwrap(),
+            bern_decay: Bernoulli::new(ARGS.prob_decay).unwrap(),
         }
     }
 
@@ -237,7 +230,7 @@ impl Rain {
             .collect();
     }
 
-    fn update(&mut self, args: &Args, tx: &SyncSender<Vec<Vec<Rune>>>) {
+    fn update(&mut self, tx: &SyncSender<Vec<Vec<Rune>>>) {
         self.drops = self
             .drops
             .clone()
@@ -249,11 +242,11 @@ impl Rain {
             self.drops.push(Drop {
                 x: self.rng.random_range(0..self.width),
                 y: 0,
-                len: self.rng.random_range(args.min_drop_len..=args.max_drop_len) as u32
-                    + args.drop_space_len as u32,
+                len: self.rng.random_range(ARGS.min_drop_len..=ARGS.max_drop_len) as u32
+                    + ARGS.drop_space_len as u32,
                 fall_int: self
                     .rng
-                    .random_range(args.min_drop_fall_int..=args.max_drop_fall_int),
+                    .random_range(ARGS.min_drop_fall_int..=ARGS.max_drop_fall_int),
                 since_update: 0,
             })
         }
@@ -278,14 +271,14 @@ impl Rain {
                             rune.symbol_index = self.uniform_symbol_index.sample(rng);
                         }
                         if self.bern_glow.sample(rng) {
-                            rune.color = (args.glow_value as u32) << 8;
+                            rune.color = (ARGS.glow_value as u32) << 8;
                         }
                         if self.bern_dim.sample(rng) {
-                            rune.color = (args.dim_value as u32) << 8;
+                            rune.color = (ARGS.dim_value as u32) << 8;
                         }
                         if rune.color > 0 && self.bern_decay.sample(rng) {
                             rune.color =
-                                (((rune.color >> 8) as f64 * args.decay_scalar) as u32) << 8;
+                                (((rune.color >> 8) as f64 * ARGS.decay_scalar) as u32) << 8;
                         }
                     })
             });
@@ -305,13 +298,13 @@ impl Rain {
                     let rune = &mut row[drop.x as usize];
                     let drop_index = drop.len - take as u32 + y as u32;
                     let drop_len = drop.len;
-                    let visible_len = drop_len - args.drop_space_len as u32;
+                    let visible_len = drop_len - ARGS.drop_space_len as u32;
                     if drop_index < visible_len - 1 {
-                        rune.color = (args.dim_value as u32
-                            + ((0xff - args.dim_value) as f64
-                                * (drop_index as f64 * args.drop_segments / visible_len as f64)
+                        rune.color = (ARGS.dim_value as u32
+                            + ((0xff - ARGS.dim_value) as f64
+                                * (drop_index as f64 * ARGS.drop_segments / visible_len as f64)
                                     .floor()
-                                / args.drop_segments) as u32)
+                                / ARGS.drop_segments) as u32)
                             << 8;
                     } else if drop_index == visible_len - 1 {
                         rune.color = 0x00ff00;
@@ -338,11 +331,7 @@ fn get_target_td(fps: u16) -> TimeDelta {
 fn main() -> Result<(), Box<dyn Error>> {
     enable_raw_mode()?;
 
-    let mut args = Args::parse();
-
-    unsafe { IS_BASIC = args.basic }
-
-    let mut rain = Rain::new(&args);
+    let mut rain = Rain::new();
 
     let (width, height) = terminal::size()?;
     rain.set_size(width / 2, height);
@@ -356,13 +345,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         Clear(ClearType::All)
     )?;
 
-    let stop = Arc::new(Mutex::new(false));
-    let target_td = Arc::new(Mutex::new(get_target_td(args.fps)));
+    let mut fps = ARGS.fps;
 
-    let (tx, rx) = mpsc::sync_channel(args.channel_size);
+    let stop = Arc::new(Mutex::new(false));
+    let target_td = Arc::new(Mutex::new(get_target_td(fps)));
+
+    let (tx, rx) = mpsc::sync_channel(ARGS.channel_size);
 
     let update_handle = {
-        let args = args.clone();
         let stop = Arc::clone(&stop);
         let target_td = Arc::clone(&target_td);
         let rain = Arc::clone(&rain);
@@ -385,7 +375,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     last_t = Utc::now() - (td - target_td);
                 }
 
-                rain.lock().unwrap().update(&args, &tx);
+                rain.lock().unwrap().update(&tx);
             }
         })
     };
@@ -407,15 +397,15 @@ fn main() -> Result<(), Box<dyn Error>> {
                             *stop.lock().unwrap() = true
                         }
                         (_, KeyCode::Right) => {
-                            args.fps = args.fps.saturating_add(args.fps_step);
-                            *target_td.lock().unwrap() = get_target_td(args.fps);
+                            fps = fps.saturating_add(ARGS.fps_step);
+                            *target_td.lock().unwrap() = get_target_td(fps);
                         }
                         (_, KeyCode::Left) => {
-                            args.fps = args.fps.saturating_sub(args.fps_step);
-                            if args.fps == 0 {
-                                args.fps = 1;
+                            fps = fps.saturating_sub(ARGS.fps_step);
+                            if fps == 0 {
+                                fps = 1;
                             }
-                            *target_td.lock().unwrap() = get_target_td(args.fps);
+                            *target_td.lock().unwrap() = get_target_td(fps);
                         }
                         _ => (),
                     },
@@ -445,7 +435,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 runes_prev = runes.clone();
             }
 
-            if args.debug_clear_frame {
+            if ARGS.debug_clear_frame {
                 execute!(
                     w,
                     SetBackgroundColor(Color::Rgb {
