@@ -385,7 +385,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             if args.debug_clear_frame {
                 execute!(
                     w,
-                    SetAttribute(Attribute::Reset),
+                    SetBackgroundColor(Color::Rgb {
+                        r: 0x66,
+                        g: 0x66,
+                        b: 0x66
+                    }),
                     Clear(ClearType::All),
                     SetBackgroundColor(Color::Rgb { r: 0, g: 0, b: 0 }),
                 )?;
