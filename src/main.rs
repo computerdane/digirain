@@ -28,13 +28,20 @@ use rayon::iter::{
     IntoParallelRefMutIterator, ParallelIterator,
 };
 
-const SYMBOLS: [char; 73] = [
+const SPECIAL_SYMBOLS: [char; 73] = [
     '　', 'Ａ', 'Ｂ', 'Ｃ', 'Ｄ', 'Ｅ', 'Ｆ', 'Ｇ', 'Ｈ', 'Ｉ', 'Ｊ', 'Ｋ', 'Ｌ', 'Ｍ', 'Ｎ', 'Ｏ',
     'Ｐ', 'Ｑ', 'Ｒ', 'Ｓ', 'Ｔ', 'Ｕ', 'Ｖ', 'Ｗ', 'Ｘ', 'Ｙ', 'Ｚ', 'ヲ', 'ァ', 'ィ', 'ゥ', 'ェ',
     'ォ', 'ャ', 'ュ', 'ョ', 'ッ', 'ン', 'ア', 'イ', 'ウ', 'エ', 'オ', 'カ', 'キ', 'ク', 'ケ', 'コ',
     'サ', 'シ', 'ヤ', 'ス', 'ソ', '０', '１', '２', '３', '４', '５', '６', '７', '８', '９', 'テ',
     'ハ', 'フ', 'ノ', 'ホ', 'メ', 'ト', 'チ', 'ニ', 'ツ',
 ];
+
+const BASIC_SYMBOLS: [char; 37] = [
+    ' ', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R',
+    'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+];
+
+static mut IS_BASIC: bool = false;
 
 #[derive(Parser, Clone)]
 struct Args {
@@ -84,11 +91,14 @@ struct Args {
 
     #[arg(long, default_value_t = 10)]
     fps_step: u16,
+
+    #[arg(long, default_value_t = false)]
+    basic: bool,
 }
 
 #[derive(Clone, PartialEq)]
 struct Rune {
-    symbol: char,
+    symbol_index: usize,
     color: u32,
 }
 
@@ -109,7 +119,7 @@ impl Rune {
 impl Default for Rune {
     fn default() -> Self {
         Rune {
-            symbol: SYMBOLS[0],
+            symbol_index: 0,
             color: 0,
         }
     }
@@ -119,11 +129,24 @@ impl Display for Rune {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "\x1b[38;2;{};{};{}m{}",
+            "\x1b[38;2;{};{};{}m{}{}",
             self.r(),
             self.g(),
             self.b(),
-            self.symbol
+            unsafe {
+                if IS_BASIC {
+                    BASIC_SYMBOLS[self.symbol_index]
+                } else {
+                    SPECIAL_SYMBOLS[self.symbol_index]
+                }
+            },
+            unsafe {
+                if IS_BASIC {
+                    " "
+                } else {
+                    ""
+                }
+            }
         )
     }
 }
@@ -179,7 +202,14 @@ impl Rain {
             rune_rngs: vec![],
             drops: vec![],
             rng: SmallRng::from_os_rng(),
-            uniform_symbol_index: Uniform::new(0, SYMBOLS.len()).unwrap(),
+            uniform_symbol_index: Uniform::new(0, unsafe {
+                if IS_BASIC {
+                    BASIC_SYMBOLS.len()
+                } else {
+                    SPECIAL_SYMBOLS.len()
+                }
+            })
+            .unwrap(),
             bern_randomize_symbol: Bernoulli::new(args.prob_randomize_symbol).unwrap(),
             bern_glow: Bernoulli::new(args.prob_glow).unwrap(),
             bern_dim: Bernoulli::new(args.prob_dim).unwrap(),
@@ -245,7 +275,7 @@ impl Rain {
                     .zip(rngs.par_iter_mut())
                     .for_each(|(rune, rng)| {
                         if rune.color != 0 && self.bern_randomize_symbol.sample(rng) {
-                            rune.symbol = SYMBOLS[self.uniform_symbol_index.sample(rng)];
+                            rune.symbol_index = self.uniform_symbol_index.sample(rng);
                         }
                         if self.bern_glow.sample(rng) {
                             rune.color = (args.glow_value as u32) << 8;
@@ -309,6 +339,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     enable_raw_mode()?;
 
     let mut args = Args::parse();
+
+    unsafe { IS_BASIC = args.basic }
+
     let mut rain = Rain::new(&args);
 
     let (width, height) = terminal::size()?;
