@@ -98,8 +98,8 @@ impl Display for Rune {
 }
 
 impl Rune {
-    fn both_black(&self, other: &Rune) -> bool {
-        self.r == 0 && self.g == 0 && self.b == 0 && other.r == 0 && other.g == 0 && other.b == 0
+    fn is_black(&self) -> bool {
+        self.r == 0 && self.g == 0 && self.b == 0
     }
 }
 
@@ -237,7 +237,7 @@ impl Rain {
                 row.par_iter_mut()
                     .zip(rngs.par_iter_mut())
                     .for_each(|(rune, rng)| {
-                        if self.bern_randomize_symbol.sample(rng) {
+                        if !rune.is_black() && self.bern_randomize_symbol.sample(rng) {
                             rune.symbol_index = self.uniform_symbol_index.sample(rng);
                         }
                         if rune.drop_index > 0 {
@@ -381,7 +381,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         .zip(row_prev)
                         .enumerate()
                         .filter_map(|(x, (rune, rune_prev))| {
-                            if rune == rune_prev || rune.both_black(&rune_prev) {
+                            if rune == rune_prev {
                                 None
                             } else {
                                 Some((x, rune))
