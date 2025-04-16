@@ -1,6 +1,6 @@
-use std::fmt::Display;
+use std::{fmt::Display, thread};
 
-use chrono::{Duration, TimeDelta, Utc};
+use chrono::{Duration, Utc};
 use clap::Parser;
 use crossterm::terminal;
 use rand::{
@@ -269,17 +269,19 @@ fn main() {
     print!("\x1b[48;2;0;0;0m");
 
     let target_td = if args.fps_cap == 0 {
-        TimeDelta::zero()
+        Duration::zero()
     } else {
         Duration::seconds(1) / (args.fps_cap as i32)
     };
     let mut last_t = Utc::now();
 
     loop {
-        if Utc::now() - last_t < target_td {
+        let td = Utc::now() - last_t;
+        if td < target_td {
+            thread::sleep(td.to_std().unwrap());
             continue;
         }
-        last_t = Utc::now();
+        last_t = Utc::now() - (td - target_td);
 
         rain.update(&args);
         print!("{rain}");
