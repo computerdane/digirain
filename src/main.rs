@@ -340,7 +340,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 if !target_td.is_zero() {
                     let td = Utc::now() - last_t;
                     if td < target_td {
-                        thread::sleep(td.to_std().unwrap());
+                        thread::sleep((target_td - td).to_std().unwrap());
                         continue;
                     }
                     last_t = Utc::now() - (td - target_td);
