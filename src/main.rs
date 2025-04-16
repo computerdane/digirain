@@ -1,8 +1,23 @@
-use std::{fmt::Display, thread};
+use std::{
+    error::Error,
+    fmt::Display,
+    io::{self, stdout, Write},
+    sync::{
+        mpsc::{self, SyncSender},
+        Arc, Mutex,
+    },
+    thread,
+};
 
 use chrono::{Duration, Utc};
 use clap::Parser;
-use crossterm::terminal;
+use crossterm::{
+    cursor::{Hide, MoveTo, Show},
+    event::{self, Event, KeyCode, KeyModifiers},
+    execute,
+    style::{Attribute, Color, SetAttribute, SetBackgroundColor},
+    terminal::{self, disable_raw_mode, enable_raw_mode, Clear, ClearType},
+};
 use rand::{
     distr::{Bernoulli, Distribution},
     rngs::SmallRng,
@@ -31,14 +46,13 @@ struct Args {
     prob_dim: f64,
     #[arg(long, default_value_t = 0.08)]
     prob_drop: f64,
+    #[arg(long, default_value_t = 0.16)]
+    prob_decay: f64,
 
     #[arg(long, default_value_t = 0x88)]
     glow_value: u8,
     #[arg(long, default_value_t = 0x66)]
     dim_value: u8,
-
-    #[arg(long, default_value_t = 5)]
-    decay_int: u16,
 
     #[arg(long, default_value_t = 0.9)]
     decay_scalar: f64,
@@ -58,6 +72,9 @@ struct Args {
 
     #[arg(long, default_value_t = 60)]
     fps_cap: u16,
+
+    #[arg(long, default_value_t = 2048)]
+    channel_size: usize,
 }
 
 struct Rune {
@@ -65,7 +82,6 @@ struct Rune {
     r: u8,
     g: u8,
     b: u8,
-    since_decay: u16,
     drop_index: u32,
     drop_len: u32,
     rng: SmallRng,
@@ -88,7 +104,6 @@ impl Rune {
             r: 0,
             g: 0,
             b: 0,
-            since_decay: 0,
             drop_index: 0,
             drop_len: 0,
             rng: SmallRng::from_os_rng(),
@@ -116,11 +131,13 @@ struct Rain {
     height: u16,
     runes: Vec<Vec<Rune>>,
     drops: Vec<Drop>,
+    redraw: bool,
     rng: SmallRng,
     bern_randomize_symbol: Bernoulli,
     bern_glow: Bernoulli,
     bern_dim: Bernoulli,
     bern_drop: Bernoulli,
+    bern_decay: Bernoulli,
 }
 
 impl Display for Rain {
@@ -148,11 +165,13 @@ impl Rain {
             height: 0,
             runes: vec![],
             drops: vec![],
+            redraw: false,
             rng: SmallRng::from_os_rng(),
             bern_randomize_symbol: Bernoulli::new(args.prob_randomize_symbol).unwrap(),
             bern_glow: Bernoulli::new(args.prob_glow).unwrap(),
             bern_dim: Bernoulli::new(args.prob_dim).unwrap(),
             bern_drop: Bernoulli::new(args.prob_drop).unwrap(),
+            bern_decay: Bernoulli::new(args.prob_decay).unwrap(),
         }
     }
 
@@ -163,9 +182,16 @@ impl Rain {
         self.runes
             .par_iter_mut()
             .for_each(|row| row.resize_with(self.width as usize, Rune::new));
+        self.drops = self
+            .drops
+            .clone()
+            .into_par_iter()
+            .filter(|drop| drop.x < self.width)
+            .collect();
+        self.redraw = true;
     }
 
-    fn update(&mut self, args: &Args) {
+    fn update(&mut self, args: &Args, tx: &SyncSender<String>) {
         self.drops = self
             .drops
             .clone()
@@ -213,10 +239,12 @@ impl Rain {
                 })
         }
 
-        self.runes.par_iter_mut().for_each(|row| {
-            row.par_iter_mut().for_each(|rune| {
+        self.runes.par_iter_mut().enumerate().for_each(|(y, row)| {
+            row.par_iter_mut().enumerate().for_each(|(x, rune)| {
+                let mut modified = false;
                 if self.bern_randomize_symbol.sample(&mut rune.rng) {
                     rune.randomize_symbol();
+                    modified = true;
                 }
                 if rune.drop_index > 0 {
                     let visible_len = rune.drop_len - args.drop_space_len as u32;
@@ -224,68 +252,152 @@ impl Rain {
                         rune.g = args.dim_value
                             + ((0xff - args.dim_value) as f64 * rune.drop_index as f64
                                 / visible_len as f64) as u8;
+                        modified = true;
                     } else if rune.drop_index == visible_len - 1 {
                         rune.r = 0;
                         rune.g = 0xff;
                         rune.b = 0;
+                        modified = true;
                     } else if rune.drop_index == visible_len {
                         rune.r = 0xff;
                         rune.g = 0xff;
                         rune.b = 0xff;
+                        modified = true;
                     } else if rune.drop_index == rune.drop_len - 1 {
                         rune.r = 0;
                         rune.g = 0;
                         rune.b = 0;
+                        modified = true;
                     }
                 } else {
                     if self.bern_glow.sample(&mut rune.rng) {
                         rune.g = args.glow_value;
+                        modified = true;
                     }
                     if self.bern_dim.sample(&mut rune.rng) {
                         rune.g = args.dim_value;
+                        modified = true;
                     }
-                    if rune.g > 0 {
-                        if rune.since_decay >= args.decay_int {
-                            rune.g = (rune.g as f64 * args.decay_scalar) as u8;
-                            rune.since_decay = 0;
-                        } else {
-                            rune.since_decay += 1;
-                        }
+                    if rune.g > 0 && self.bern_decay.sample(&mut rune.rng) {
+                        rune.g = (rune.g as f64 * args.decay_scalar) as u8;
+                        modified = true;
                     }
                 }
+                if modified && !self.redraw {
+                    tx.try_send(format!("\x1b[{};{}H{}", y + 1, (x * 2) + 1, rune))
+                        .unwrap_or_default();
+                }
             })
-        })
+        });
+
+        if self.redraw {
+            tx.send(self.to_string()).unwrap_or_default();
+            self.redraw = false;
+        }
     }
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
+    enable_raw_mode()?;
+
     let args = Args::parse();
     let mut rain = Rain::new(&args);
 
-    let (width, height) = terminal::size().unwrap();
+    let (width, height) = terminal::size()?;
     rain.set_size(width / 2, height);
 
-    print!("\x1b[?25l");
-    print!("\x1b[48;2;0;0;0m");
+    let rain = Arc::new(Mutex::new(rain));
 
-    let target_td = if args.fps_cap == 0 {
-        Duration::zero()
-    } else {
-        Duration::seconds(1) / (args.fps_cap as i32)
-    };
-    let mut last_t = Utc::now();
+    execute!(
+        stdout(),
+        Hide,
+        SetBackgroundColor(Color::Rgb { r: 0, g: 0, b: 0 }),
+        Clear(ClearType::All)
+    )?;
 
-    loop {
-        if !target_td.is_zero() {
-            let td = Utc::now() - last_t;
-            if td < target_td {
-                thread::sleep(td.to_std().unwrap());
-                continue;
+    let stop = Arc::new(Mutex::new(false));
+    let (tx, rx) = mpsc::sync_channel(args.channel_size);
+
+    let update_handle = {
+        let stop = Arc::clone(&stop);
+        let rain = Arc::clone(&rain);
+        thread::spawn(move || {
+            let target_td = if args.fps_cap == 0 {
+                Duration::zero()
+            } else {
+                Duration::seconds(1) / (args.fps_cap as i32)
+            };
+            let mut last_t = Utc::now();
+
+            loop {
+                if *stop.lock().unwrap() {
+                    break;
+                }
+
+                if !target_td.is_zero() {
+                    let td = Utc::now() - last_t;
+                    if td < target_td {
+                        thread::sleep(td.to_std().unwrap());
+                        continue;
+                    }
+                    last_t = Utc::now() - (td - target_td);
+                }
+
+                rain.lock().unwrap().update(&args, &tx);
             }
-            last_t = Utc::now() - (td - target_td);
+        })
+    };
+
+    let keyboard_handle = {
+        let stop = Arc::clone(&stop);
+        let rain = Arc::clone(&rain);
+        thread::spawn(move || loop {
+            if *stop.lock().unwrap() {
+                break;
+            }
+
+            if event::poll(std::time::Duration::from_secs(100)).unwrap() {
+                match event::read().unwrap() {
+                    Event::Key(key_event) => match (key_event.modifiers, key_event.code) {
+                        (_, KeyCode::Char('q'))
+                        | (_, KeyCode::Esc)
+                        | (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
+                            *stop.lock().unwrap() = true
+                        }
+                        _ => (),
+                    },
+                    Event::Resize(width, height) => {
+                        rain.lock().unwrap().set_size(width / 2, height)
+                    }
+                    _ => (),
+                }
+            }
+        })
+    };
+
+    let mut w = io::BufWriter::new(stdout().lock());
+    loop {
+        if *stop.lock().unwrap() {
+            break;
         }
 
-        rain.update(&args);
-        print!("{rain}");
+        if let Ok(s) = rx.recv() {
+            write!(w, "{s}")?;
+        }
     }
+    w.flush()?;
+
+    update_handle.join().unwrap();
+    keyboard_handle.join().unwrap();
+
+    execute!(
+        stdout(),
+        SetAttribute(Attribute::Reset),
+        Clear(ClearType::All),
+        MoveTo(0, 0),
+        Show
+    )?;
+    disable_raw_mode()?;
+
+    Ok(())
 }
