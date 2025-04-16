@@ -77,7 +77,7 @@ struct Args {
     channel_size: usize,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Default)]
 struct Rune {
     symbol_index: usize,
     r: u8,
@@ -98,15 +98,8 @@ impl Display for Rune {
 }
 
 impl Rune {
-    fn new() -> Self {
-        Rune {
-            symbol_index: 0,
-            r: 0,
-            g: 0,
-            b: 0,
-            drop_index: 0,
-            drop_len: 0,
-        }
+    fn both_black(&self, other: &Rune) -> bool {
+        self.r == 0 && self.g == 0 && self.b == 0 && other.r == 0 && other.g == 0 && other.b == 0
     }
 }
 
@@ -176,7 +169,7 @@ impl Rain {
         self.runes.resize_with(self.height as usize, || vec![]);
         self.runes
             .par_iter_mut()
-            .for_each(|row| row.resize_with(self.width as usize, Rune::new));
+            .for_each(|row| row.resize_with(self.width as usize, Rune::default));
         self.rune_rngs.resize_with(self.height as usize, || vec![]);
         self.rune_rngs
             .par_iter_mut()
@@ -387,11 +380,20 @@ fn main() -> Result<(), Box<dyn Error>> {
                         .par_iter()
                         .zip(row_prev)
                         .enumerate()
-                        .filter_map(|(x, (rune, rune_prev))| if rune != rune_prev {
-                            Some(format!("\x1b[{};{}H{}", y + 1, (x * 2) + 1, rune))
-                        } else {
-                            None
+                        .filter_map(|(x, (rune, rune_prev))| {
+                            if rune == rune_prev || rune.both_black(&rune_prev) {
+                                None
+                            } else {
+                                Some((x, rune))
+                            }
                         })
+                        .fold_with((String::new(), 0), |(s, last_x), (x, rune)| {
+                            if last_x != 0 && last_x == x - 1 {
+                                return (format!("{s}{rune}"), x);
+                            }
+                            (format!("\x1b[{};{}H{}", y + 1, (x * 2) + 1, rune), x)
+                        })
+                        .map(|(s, _)| s)
                         .collect::<Vec<String>>())
                     .collect::<Vec<String>>()
                     .join("")
