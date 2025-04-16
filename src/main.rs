@@ -85,7 +85,7 @@ struct Args {
 
 #[derive(Clone, Default)]
 struct Rune {
-    symbol_index: usize,
+    symbol: char,
     r: u8,
     g: u8,
     b: u8,
@@ -96,17 +96,14 @@ impl Display for Rune {
         write!(
             f,
             "\x1b[38;2;{};{};{}m{}",
-            self.r, self.g, self.b, SYMBOLS[self.symbol_index]
+            self.r, self.g, self.b, self.symbol
         )
     }
 }
 
 impl PartialEq for Rune {
     fn eq(&self, other: &Self) -> bool {
-        self.symbol_index == other.symbol_index
-            && self.r == other.r
-            && self.g == other.g
-            && self.b == other.b
+        self.symbol == other.symbol && self.r == other.r && self.g == other.g && self.b == other.b
     }
 }
 
@@ -233,7 +230,7 @@ impl Rain {
                     .zip(rngs.par_iter_mut())
                     .for_each(|(rune, rng)| {
                         if !rune.is_black() && self.bern_randomize_symbol.sample(rng) {
-                            rune.symbol_index = self.uniform_symbol_index.sample(rng);
+                            rune.symbol = SYMBOLS[self.uniform_symbol_index.sample(rng)];
                         }
                         if self.bern_glow.sample(rng) {
                             rune.g = args.glow_value;
