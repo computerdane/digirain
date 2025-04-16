@@ -76,7 +76,7 @@ struct Args {
     #[arg(long, default_value_t = 60)]
     ups_cap: u16,
 
-    #[arg(long, default_value_t = 2048)]
+    #[arg(long, default_value_t = 1)]
     channel_size: usize,
 
     #[arg(long, default_value_t = false)]
@@ -318,7 +318,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let stop = Arc::new(Mutex::new(false));
 
-    let (tx, rx) = mpsc::sync_channel(1);
+    let (tx, rx) = mpsc::sync_channel(args.channel_size);
 
     let update_handle = {
         let args = args.clone();
