@@ -275,7 +275,7 @@ impl Rain {
                         rune.color = 0x00ff00;
                     } else if drop_index == visible_len {
                         rune.color = 0xffffff;
-                    } else if drop_index == drop_len - 1 {
+                    } else {
                         rune.color = 0;
                     }
                 })
