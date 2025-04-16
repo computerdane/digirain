@@ -11,7 +11,7 @@
       let
         pkgs = import nixpkgs { inherit system; };
       in
-      {
+      rec {
         devShell = pkgs.mkShell {
           buildInputs = with pkgs; [
             cargo
@@ -19,6 +19,8 @@
             rustfmt
           ];
         };
+        packages.default = pkgs.callPackage ./default.nix { };
+        apps.default = utils.lib.mkApp { drv = packages.default; };
       }
     );
 }
