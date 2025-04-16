@@ -9,7 +9,7 @@ use std::{
     thread,
 };
 
-use chrono::{Duration, Utc};
+use chrono::{Duration, TimeDelta, Utc};
 use clap::Parser;
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
@@ -81,6 +81,9 @@ struct Args {
 
     #[arg(long, default_value_t = false)]
     debug_clear_frame: bool,
+
+    #[arg(long, default_value_t = 10)]
+    fps_step: u16,
 }
 
 #[derive(Clone, PartialEq)]
@@ -294,10 +297,18 @@ impl Rain {
     }
 }
 
+fn get_target_td(fps: u16) -> TimeDelta {
+    if fps == 0 {
+        Duration::zero()
+    } else {
+        Duration::seconds(1) / (fps as i32)
+    }
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     enable_raw_mode()?;
 
-    let args = Args::parse();
+    let mut args = Args::parse();
     let mut rain = Rain::new(&args);
 
     let (width, height) = terminal::size()?;
@@ -313,25 +324,24 @@ fn main() -> Result<(), Box<dyn Error>> {
     )?;
 
     let stop = Arc::new(Mutex::new(false));
+    let target_td = Arc::new(Mutex::new(get_target_td(args.fps)));
 
     let (tx, rx) = mpsc::sync_channel(args.channel_size);
 
     let update_handle = {
         let args = args.clone();
         let stop = Arc::clone(&stop);
+        let target_td = Arc::clone(&target_td);
         let rain = Arc::clone(&rain);
         thread::spawn(move || {
-            let target_td = if args.fps == 0 {
-                Duration::zero()
-            } else {
-                Duration::seconds(1) / (args.fps as i32)
-            };
             let mut last_t = Utc::now();
 
             loop {
                 if *stop.lock().unwrap() {
                     break;
                 }
+
+                let target_td = *target_td.lock().unwrap();
 
                 if !target_td.is_zero() {
                     let td = Utc::now() - last_t;
@@ -362,6 +372,17 @@ fn main() -> Result<(), Box<dyn Error>> {
                         | (_, KeyCode::Esc)
                         | (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
                             *stop.lock().unwrap() = true
+                        }
+                        (_, KeyCode::Right) => {
+                            args.fps = args.fps.saturating_add(args.fps_step);
+                            *target_td.lock().unwrap() = get_target_td(args.fps);
+                        }
+                        (_, KeyCode::Left) => {
+                            args.fps = args.fps.saturating_sub(args.fps_step);
+                            if args.fps == 0 {
+                                args.fps = 1;
+                            }
+                            *target_td.lock().unwrap() = get_target_td(args.fps);
                         }
                         _ => (),
                     },
