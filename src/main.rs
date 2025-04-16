@@ -49,7 +49,7 @@ struct Args {
     #[arg(long, default_value_t = 0.16)]
     prob_decay: f64,
 
-    #[arg(long, default_value_t = 0x6E)]
+    #[arg(long, default_value_t = 0x6e)]
     glow_value: u8,
     #[arg(long, default_value_t = 0x66)]
     dim_value: u8,
@@ -83,12 +83,24 @@ struct Args {
     debug_clear_frame: bool,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 struct Rune {
     symbol: char,
-    r: u8,
-    g: u8,
-    b: u8,
+    color: u32,
+}
+
+impl Rune {
+    fn r(&self) -> u8 {
+        ((self.color >> 16) & 0xff) as u8
+    }
+
+    fn g(&self) -> u8 {
+        ((self.color >> 8) & 0xff) as u8
+    }
+
+    fn b(&self) -> u8 {
+        (self.color & 0xff) as u8
+    }
 }
 
 impl Display for Rune {
@@ -96,20 +108,11 @@ impl Display for Rune {
         write!(
             f,
             "\x1b[38;2;{};{};{}m{}",
-            self.r, self.g, self.b, self.symbol
+            self.r(),
+            self.g(),
+            self.b(),
+            self.symbol
         )
-    }
-}
-
-impl PartialEq for Rune {
-    fn eq(&self, other: &Self) -> bool {
-        self.symbol == other.symbol && self.r == other.r && self.g == other.g && self.b == other.b
-    }
-}
-
-impl Rune {
-    fn is_black(&self) -> bool {
-        self.r == 0 && self.g == 0 && self.b == 0
     }
 }
 
@@ -229,17 +232,18 @@ impl Rain {
                 row.par_iter_mut()
                     .zip(rngs.par_iter_mut())
                     .for_each(|(rune, rng)| {
-                        if !rune.is_black() && self.bern_randomize_symbol.sample(rng) {
+                        if rune.color != 0 && self.bern_randomize_symbol.sample(rng) {
                             rune.symbol = SYMBOLS[self.uniform_symbol_index.sample(rng)];
                         }
                         if self.bern_glow.sample(rng) {
-                            rune.g = args.glow_value;
+                            rune.color = (args.glow_value as u32) << 8;
                         }
                         if self.bern_dim.sample(rng) {
-                            rune.g = args.dim_value;
+                            rune.color = (args.dim_value as u32) << 8;
                         }
-                        if rune.g > 0 && self.bern_decay.sample(rng) {
-                            rune.g = (rune.g as f64 * args.decay_scalar) as u8;
+                        if rune.color > 0 && self.bern_decay.sample(rng) {
+                            rune.color =
+                                (((rune.color >> 8) as f64 * args.decay_scalar) as u32) << 8;
                         }
                     })
             });
@@ -261,25 +265,18 @@ impl Rain {
                     let drop_len = drop.len;
                     let visible_len = drop_len - args.drop_space_len as u32;
                     if drop_index < visible_len - 1 {
-                        rune.r = 0;
-                        rune.g = args.dim_value
+                        rune.color = (args.dim_value as u32
                             + ((0xff - args.dim_value) as f64
                                 * (drop_index as f64 * args.drop_segments / visible_len as f64)
                                     .floor()
-                                / args.drop_segments) as u8;
-                        rune.b = 0;
+                                / args.drop_segments) as u32)
+                            << 8;
                     } else if drop_index == visible_len - 1 {
-                        rune.r = 0;
-                        rune.g = 0xff;
-                        rune.b = 0;
+                        rune.color = 0x00ff00;
                     } else if drop_index == visible_len {
-                        rune.r = 0xff;
-                        rune.g = 0xff;
-                        rune.b = 0xff;
+                        rune.color = 0xffffff;
                     } else if drop_index == drop_len - 1 {
-                        rune.r = 0;
-                        rune.g = 0;
-                        rune.b = 0;
+                        rune.color = 0;
                     }
                 })
         }
