@@ -74,7 +74,7 @@ struct Args {
     max_drop_fall_int: u16,
 
     #[arg(long, default_value_t = 60)]
-    ups_cap: u16,
+    fps: u16,
 
     #[arg(long, default_value_t = 1)]
     channel_size: usize,
@@ -325,10 +325,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         let stop = Arc::clone(&stop);
         let rain = Arc::clone(&rain);
         thread::spawn(move || {
-            let target_td = if args.ups_cap == 0 {
+            let target_td = if args.fps == 0 {
                 Duration::zero()
             } else {
-                Duration::seconds(1) / (args.ups_cap as i32)
+                Duration::seconds(1) / (args.fps as i32)
             };
             let mut last_t = Utc::now();
 
