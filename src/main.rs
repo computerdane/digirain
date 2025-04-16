@@ -49,7 +49,7 @@ struct Args {
     #[arg(long, default_value_t = 0.16)]
     prob_decay: f64,
 
-    #[arg(long, default_value_t = 0x88)]
+    #[arg(long, default_value_t = 0x6E)]
     glow_value: u8,
     #[arg(long, default_value_t = 0x66)]
     dim_value: u8,
