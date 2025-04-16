@@ -89,8 +89,6 @@ struct Rune {
     r: u8,
     g: u8,
     b: u8,
-    drop_index: u32,
-    drop_len: u32,
 }
 
 impl Display for Rune {
@@ -227,6 +225,28 @@ impl Rain {
             }
         });
 
+        self.runes
+            .par_iter_mut()
+            .zip(self.rune_rngs.par_iter_mut())
+            .for_each(|(row, rngs)| {
+                row.par_iter_mut()
+                    .zip(rngs.par_iter_mut())
+                    .for_each(|(rune, rng)| {
+                        if !rune.is_black() && self.bern_randomize_symbol.sample(rng) {
+                            rune.symbol_index = self.uniform_symbol_index.sample(rng);
+                        }
+                        if self.bern_glow.sample(rng) {
+                            rune.g = args.glow_value;
+                        }
+                        if self.bern_dim.sample(rng) {
+                            rune.g = args.dim_value;
+                        }
+                        if rune.g > 0 && self.bern_decay.sample(rng) {
+                            rune.g = (rune.g as f64 * args.decay_scalar) as u8;
+                        }
+                    })
+            });
+
         for drop in &self.drops {
             let (skip, take) = if drop.y as u32 > drop.len {
                 (drop.y as usize - drop.len as usize, drop.len as usize)
@@ -240,59 +260,32 @@ impl Rain {
                 .enumerate()
                 .for_each(|(y, row)| {
                     let rune = &mut row[drop.x as usize];
-                    rune.drop_index = drop.len - take as u32 + y as u32;
-                    rune.drop_len = drop.len;
+                    let drop_index = drop.len - take as u32 + y as u32;
+                    let drop_len = drop.len;
+                    let visible_len = drop_len - args.drop_space_len as u32;
+                    if drop_index < visible_len - 1 {
+                        rune.r = 0;
+                        rune.g = args.dim_value
+                            + ((0xff - args.dim_value) as f64
+                                * (drop_index as f64 * args.drop_segments / visible_len as f64)
+                                    .floor()
+                                / args.drop_segments) as u8;
+                        rune.b = 0;
+                    } else if drop_index == visible_len - 1 {
+                        rune.r = 0;
+                        rune.g = 0xff;
+                        rune.b = 0;
+                    } else if drop_index == visible_len {
+                        rune.r = 0xff;
+                        rune.g = 0xff;
+                        rune.b = 0xff;
+                    } else if drop_index == drop_len - 1 {
+                        rune.r = 0;
+                        rune.g = 0;
+                        rune.b = 0;
+                    }
                 })
         }
-
-        self.runes
-            .par_iter_mut()
-            .zip(self.rune_rngs.par_iter_mut())
-            .for_each(|(row, rngs)| {
-                row.par_iter_mut()
-                    .zip(rngs.par_iter_mut())
-                    .for_each(|(rune, rng)| {
-                        if !rune.is_black() && self.bern_randomize_symbol.sample(rng) {
-                            rune.symbol_index = self.uniform_symbol_index.sample(rng);
-                        }
-                        if rune.drop_index > 0 {
-                            let visible_len = rune.drop_len - args.drop_space_len as u32;
-                            if rune.drop_index < visible_len - 1 {
-                                rune.r = 0;
-                                rune.g = args.dim_value
-                                    + ((0xff - args.dim_value) as f64
-                                        * (rune.drop_index as f64 * args.drop_segments
-                                            / visible_len as f64)
-                                            .floor()
-                                        / args.drop_segments)
-                                        as u8;
-                                rune.b = 0;
-                            } else if rune.drop_index == visible_len - 1 {
-                                rune.r = 0;
-                                rune.g = 0xff;
-                                rune.b = 0;
-                            } else if rune.drop_index == visible_len {
-                                rune.r = 0xff;
-                                rune.g = 0xff;
-                                rune.b = 0xff;
-                            } else if rune.drop_index == rune.drop_len - 1 {
-                                rune.r = 0;
-                                rune.g = 0;
-                                rune.b = 0;
-                            }
-                        } else {
-                            if self.bern_glow.sample(rng) {
-                                rune.g = args.glow_value;
-                            }
-                            if self.bern_dim.sample(rng) {
-                                rune.g = args.dim_value;
-                            }
-                            if rune.g > 0 && self.bern_decay.sample(rng) {
-                                rune.g = (rune.g as f64 * args.decay_scalar) as u8;
-                            }
-                        }
-                    })
-            });
 
         tx.try_send(self.runes.clone()).unwrap_or_default();
     }
