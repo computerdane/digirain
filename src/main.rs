@@ -36,7 +36,7 @@ const SYMBOLS: [char; 73] = [
     'ハ', 'フ', 'ノ', 'ホ', 'メ', 'ト', 'チ', 'ニ', 'ツ',
 ];
 
-#[derive(Parser)]
+#[derive(Parser, Clone)]
 struct Args {
     #[arg(long, default_value_t = 0.04)]
     prob_randomize_symbol: f64,
@@ -65,6 +65,9 @@ struct Args {
     #[arg(long, default_value_t = 10)]
     drop_space_len: u16,
 
+    #[arg(long, default_value_t = 6.0)]
+    drop_segments: f64,
+
     #[arg(long, default_value_t = 1)]
     min_drop_fall_int: u16,
     #[arg(long, default_value_t = 3)]
@@ -75,9 +78,12 @@ struct Args {
 
     #[arg(long, default_value_t = 2048)]
     channel_size: usize,
+
+    #[arg(long, default_value_t = false)]
+    debug_clear_frame: bool,
 }
 
-#[derive(Clone, PartialEq, Default)]
+#[derive(Clone, Default)]
 struct Rune {
     symbol_index: usize,
     r: u8,
@@ -94,6 +100,15 @@ impl Display for Rune {
             "\x1b[38;2;{};{};{}m{}",
             self.r, self.g, self.b, SYMBOLS[self.symbol_index]
         )
+    }
+}
+
+impl PartialEq for Rune {
+    fn eq(&self, other: &Self) -> bool {
+        self.symbol_index == other.symbol_index
+            && self.r == other.r
+            && self.g == other.g
+            && self.b == other.b
     }
 }
 
@@ -243,10 +258,15 @@ impl Rain {
                         if rune.drop_index > 0 {
                             let visible_len = rune.drop_len - args.drop_space_len as u32;
                             if rune.drop_index < visible_len - 1 {
+                                rune.r = 0;
                                 rune.g = args.dim_value
-                                    + ((0xff - args.dim_value) as f64 * rune.drop_index as f64
-                                        / visible_len as f64)
+                                    + ((0xff - args.dim_value) as f64
+                                        * (rune.drop_index as f64 * args.drop_segments
+                                            / visible_len as f64)
+                                            .floor()
+                                        / args.drop_segments)
                                         as u8;
+                                rune.b = 0;
                             } else if rune.drop_index == visible_len - 1 {
                                 rune.r = 0;
                                 rune.g = 0xff;
@@ -297,18 +317,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     )?;
 
     let stop = Arc::new(Mutex::new(false));
-    let target_td = if args.ups_cap == 0 {
-        Duration::zero()
-    } else {
-        Duration::seconds(1) / (args.ups_cap as i32)
-    };
 
     let (tx, rx) = mpsc::sync_channel(1);
 
     let update_handle = {
+        let args = args.clone();
         let stop = Arc::clone(&stop);
         let rain = Arc::clone(&rain);
         thread::spawn(move || {
+            let target_td = if args.ups_cap == 0 {
+                Duration::zero()
+            } else {
+                Duration::seconds(1) / (args.ups_cap as i32)
+            };
             let mut last_t = Utc::now();
 
             loop {
@@ -374,6 +395,15 @@ fn main() -> Result<(), Box<dyn Error>> {
                 runes_prev = runes.clone();
             }
 
+            if args.debug_clear_frame {
+                execute!(
+                    w,
+                    SetAttribute(Attribute::Reset),
+                    Clear(ClearType::All),
+                    SetBackgroundColor(Color::Rgb { r: 0, g: 0, b: 0 }),
+                )?;
+            }
+
             write!(
                 w,
                 "{}",
@@ -396,7 +426,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                             if last_x != 0 && last_x == x - 1 {
                                 return (format!("{s}{rune}"), x);
                             }
-                            (format!("\x1b[{};{}H{}", y + 1, (x * 2) + 1, rune), x)
+                            (format!("{s}\x1b[{};{}H{}", y + 1, (x * 2) + 1, rune), x)
                         })
                         .map(|(s, _)| s)
                         .collect::<Vec<String>>())
