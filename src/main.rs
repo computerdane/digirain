@@ -77,7 +77,7 @@ struct Args {
     channel_size: usize,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct Rune {
     symbol_index: usize,
     r: u8,
@@ -365,26 +365,39 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let mut w = stdout().lock();
+    let mut runes_prev = vec![];
     loop {
         if *stop.lock().unwrap() {
             break;
         }
 
         if let Ok(runes) = rx.recv() {
-            w.write(b"\x1b[1;1H")?;
+            if runes_prev.is_empty() {
+                runes_prev = runes;
+                continue;
+            }
             write!(
                 w,
                 "{}",
                 runes
                     .par_iter()
-                    .flat_map(|row| row
+                    .zip(&runes_prev)
+                    .enumerate()
+                    .flat_map(|(y, (row, row_prev))| row
                         .par_iter()
-                        .map(|rune| rune.to_string())
+                        .zip(row_prev)
+                        .enumerate()
+                        .filter_map(|(x, (rune, rune_prev))| if rune != rune_prev {
+                            Some(format!("\x1b[{};{}H{}", y + 1, (x * 2) + 1, rune))
+                        } else {
+                            None
+                        })
                         .collect::<Vec<String>>())
                     .collect::<Vec<String>>()
                     .join("")
             )?;
             w.flush()?;
+            runes_prev = runes;
         } else {
             break;
         }
