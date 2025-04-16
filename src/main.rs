@@ -83,7 +83,7 @@ struct Args {
     debug_clear_frame: bool,
 }
 
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, PartialEq)]
 struct Rune {
     symbol: char,
     color: u32,
@@ -100,6 +100,15 @@ impl Rune {
 
     fn b(&self) -> u8 {
         (self.color & 0xff) as u8
+    }
+}
+
+impl Default for Rune {
+    fn default() -> Self {
+        Rune {
+            symbol: SYMBOLS[0],
+            color: 0,
+        }
     }
 }
 
