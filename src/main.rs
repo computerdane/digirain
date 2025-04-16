@@ -330,7 +330,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         })
     };
 
-    let keyboard_handle = {
+    let event_handle = {
         let stop = Arc::clone(&stop);
         let rain = Arc::clone(&rain);
         thread::spawn(move || loop {
@@ -349,7 +349,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         _ => (),
                     },
                     Event::Resize(width, height) => {
-                        rain.lock().unwrap().set_size(width / 2, height)
+                        rain.lock().unwrap().set_size(width / 2, height);
                     }
                     _ => (),
                 }
@@ -365,10 +365,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
 
         if let Ok(runes) = rx.recv() {
-            if runes_prev.is_empty() {
-                runes_prev = runes;
-                continue;
+            let redraw = runes_prev.is_empty()
+                || runes_prev.len() != runes.len()
+                || runes_prev.first().unwrap_or(&vec![]).len()
+                    != runes.first().unwrap_or(&vec![]).len();
+
+            if redraw {
+                runes_prev = runes.clone();
             }
+
             write!(
                 w,
                 "{}",
@@ -381,10 +386,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                         .zip(row_prev)
                         .enumerate()
                         .filter_map(|(x, (rune, rune_prev))| {
-                            if rune == rune_prev {
-                                None
-                            } else {
+                            if redraw || rune != rune_prev {
                                 Some((x, rune))
+                            } else {
+                                None
                             }
                         })
                         .fold_with((String::new(), 0), |(s, last_x), (x, rune)| {
@@ -399,6 +404,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .join("")
             )?;
             w.flush()?;
+
             runes_prev = runes;
         } else {
             break;
@@ -406,7 +412,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     update_handle.join().unwrap();
-    keyboard_handle.join().unwrap();
+    event_handle.join().unwrap();
 
     execute!(
         stdout(),
