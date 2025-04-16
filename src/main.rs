@@ -276,12 +276,14 @@ fn main() {
     let mut last_t = Utc::now();
 
     loop {
-        let td = Utc::now() - last_t;
-        if td < target_td {
-            thread::sleep(td.to_std().unwrap());
-            continue;
+        if !target_td.is_zero() {
+            let td = Utc::now() - last_t;
+            if td < target_td {
+                thread::sleep(td.to_std().unwrap());
+                continue;
+            }
+            last_t = Utc::now() - (td - target_td);
         }
-        last_t = Utc::now() - (td - target_td);
 
         rain.update(&args);
         print!("{rain}");
