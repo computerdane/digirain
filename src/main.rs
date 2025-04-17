@@ -21,7 +21,7 @@ use crossterm::{
 use rand::{
     distr::{Bernoulli, Distribution, Uniform},
     rngs::SmallRng,
-    Rng, SeedableRng,
+    SeedableRng,
 };
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
@@ -49,7 +49,7 @@ struct Args {
     prob_glow: f64,
     #[arg(long, default_value_t = 0.003)]
     prob_dim: f64,
-    #[arg(long, default_value_t = 0.08)]
+    #[arg(long, default_value_t = 0.002)]
     prob_drop: f64,
     #[arg(long, default_value_t = 0.16)]
     prob_decay: f64,
@@ -158,8 +158,11 @@ struct Rain {
     runes: Vec<Vec<Rune>>,
     rune_rngs: Vec<Vec<SmallRng>>,
     drops: Vec<Drop>,
-    rng: SmallRng,
+    drop_rngs: Vec<SmallRng>,
     uniform_symbol_index: Uniform<usize>,
+    uniform_x: Uniform<u16>,
+    uniform_drop_len: Uniform<u16>,
+    uniform_drop_fall_int: Uniform<u16>,
     bern_randomize_symbol: Bernoulli,
     bern_glow: Bernoulli,
     bern_dim: Bernoulli,
@@ -193,7 +196,7 @@ impl Rain {
             runes: vec![],
             rune_rngs: vec![],
             drops: vec![],
-            rng: SmallRng::from_os_rng(),
+            drop_rngs: vec![],
             uniform_symbol_index: Uniform::new(
                 0,
                 if ARGS.basic {
@@ -203,6 +206,10 @@ impl Rain {
                 },
             )
             .unwrap(),
+            uniform_x: Uniform::new(0, 1).unwrap(),
+            uniform_drop_len: Uniform::new(ARGS.min_drop_len, ARGS.max_drop_len + 1).unwrap(),
+            uniform_drop_fall_int: Uniform::new(ARGS.min_drop_fall_int, ARGS.max_drop_fall_int + 1)
+                .unwrap(),
             bern_randomize_symbol: Bernoulli::new(ARGS.prob_randomize_symbol).unwrap(),
             bern_glow: Bernoulli::new(ARGS.prob_glow).unwrap(),
             bern_dim: Bernoulli::new(ARGS.prob_dim).unwrap(),
@@ -228,6 +235,9 @@ impl Rain {
             .into_par_iter()
             .filter(|drop| drop.x < self.width)
             .collect();
+        self.drop_rngs
+            .resize_with(self.width as usize, SmallRng::from_os_rng);
+        self.uniform_x = Uniform::new(0, self.width).unwrap();
     }
 
     fn update(&mut self, tx: &SyncSender<Vec<Vec<Rune>>>) {
@@ -238,18 +248,25 @@ impl Rain {
             .filter(|drop| (drop.y as u32).saturating_sub(drop.len) < self.height as u32)
             .collect();
 
-        if self.drops.len() < self.runes.len() && self.bern_drop.sample(&mut self.rng) {
-            self.drops.push(Drop {
-                x: self.rng.random_range(0..self.width),
-                y: 0,
-                len: self.rng.random_range(ARGS.min_drop_len..=ARGS.max_drop_len) as u32
-                    + ARGS.drop_space_len as u32,
-                fall_int: self
-                    .rng
-                    .random_range(ARGS.min_drop_fall_int..=ARGS.max_drop_fall_int),
-                since_update: 0,
-            })
-        }
+        self.drops.extend(
+            self.drop_rngs
+                .iter_mut()
+                .filter_map(|rng| {
+                    if self.bern_drop.sample(rng) {
+                        Some(Drop {
+                            x: self.uniform_x.sample(rng),
+                            y: 0,
+                            len: self.uniform_drop_len.sample(rng) as u32
+                                + ARGS.drop_space_len as u32,
+                            fall_int: self.uniform_drop_fall_int.sample(rng),
+                            since_update: 0,
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<Drop>>(),
+        );
 
         self.drops.par_iter_mut().for_each(|drop| {
             if drop.since_update >= drop.fall_int {
