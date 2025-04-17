@@ -54,9 +54,9 @@ struct Args {
     #[arg(long, default_value_t = 0.16)]
     prob_decay: f64,
 
-    #[arg(long, default_value_t = 0x6e)]
+    #[arg(long, default_value_t = 0x50)]
     glow_value: u8,
-    #[arg(long, default_value_t = 0x66)]
+    #[arg(long, default_value_t = 0x40)]
     dim_value: u8,
 
     #[arg(long, default_value_t = 0.9)]
@@ -287,18 +287,30 @@ impl Rain {
                         if rune.color != 0 && self.bern_randomize_symbol.sample(rng) {
                             rune.symbol_index = self.uniform_symbol_index.sample(rng);
                         }
-                        if self.bern_glow.sample(rng) {
-                            rune.color = (ARGS.glow_value as u32) << 8;
-                        }
-                        if self.bern_dim.sample(rng) {
-                            rune.color = (ARGS.dim_value as u32) << 8;
-                        }
-                        if rune.color > 0 && self.bern_decay.sample(rng) {
-                            rune.color =
-                                (((rune.color >> 8) as f64 * ARGS.decay_scalar) as u32) << 8;
-                        }
                     })
             });
+
+        if !ARGS.basic {
+            self.runes
+                .par_iter_mut()
+                .zip(self.rune_rngs.par_iter_mut())
+                .for_each(|(row, rngs)| {
+                    row.par_iter_mut()
+                        .zip(rngs.par_iter_mut())
+                        .for_each(|(rune, rng)| {
+                            if self.bern_glow.sample(rng) {
+                                rune.color = (ARGS.glow_value as u32) << 8;
+                            }
+                            if self.bern_dim.sample(rng) {
+                                rune.color = (ARGS.dim_value as u32) << 8;
+                            }
+                            if rune.color > 0 && self.bern_decay.sample(rng) {
+                                rune.color =
+                                    (((rune.color >> 8) as f64 * ARGS.decay_scalar) as u32) << 8;
+                            }
+                        })
+                });
+        }
 
         for drop in &self.drops {
             let (skip, take) = if drop.y as u32 > drop.len {
@@ -316,7 +328,9 @@ impl Rain {
                     let drop_index = drop.len - take as u32 + y as u32;
                     let drop_len = drop.len;
                     let visible_len = drop_len - ARGS.drop_space_len as u32;
-                    if drop_index < visible_len - 1 {
+                    if ARGS.basic && drop_index == 0 {
+                        rune.color = 0;
+                    } else if drop_index < visible_len - 1 {
                         rune.color = (ARGS.dim_value as u32
                             + ((0xff - ARGS.dim_value) as f64
                                 * (drop_index as f64 * ARGS.drop_segments / visible_len as f64)
