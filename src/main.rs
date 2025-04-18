@@ -98,12 +98,18 @@ struct Args {
 
     #[arg(long, default_value_t = false)]
     basic: bool,
+
+    #[arg(long, default_value_t = false)]
+    no_rain: bool,
+    #[arg(long, default_value_t = false)]
+    no_bg: bool,
 }
 
 static ARGS: LazyLock<Args> = LazyLock::new(|| Args::parse());
 
 #[derive(Clone, PartialEq)]
 struct Rune {
+    is_new: bool,
     symbol_index: usize,
     color: u32,
     is_flash: bool,
@@ -126,6 +132,7 @@ impl Rune {
 impl Default for Rune {
     fn default() -> Self {
         Rune {
+            is_new: true,
             symbol_index: 0,
             color: 0,
             is_flash: false,
@@ -251,42 +258,6 @@ impl Rain {
     }
 
     fn update(&mut self, tx: &SyncSender<Vec<Vec<Rune>>>) {
-        self.drops = self
-            .drops
-            .clone()
-            .into_par_iter()
-            .filter(|drop| (drop.y as u32).saturating_sub(drop.len) < self.height as u32)
-            .collect();
-
-        self.drops.extend(
-            self.drop_rngs
-                .iter_mut()
-                .filter_map(|rng| {
-                    if self.bern_drop.sample(rng) {
-                        Some(Drop {
-                            x: self.uniform_x.sample(rng),
-                            y: 0,
-                            len: self.uniform_drop_len.sample(rng) as u32
-                                + ARGS.drop_space_len as u32,
-                            fall_int: self.uniform_drop_fall_int.sample(rng),
-                            since_update: 0,
-                        })
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<Drop>>(),
-        );
-
-        self.drops.par_iter_mut().for_each(|drop| {
-            if drop.since_update >= drop.fall_int {
-                drop.y += 1;
-                drop.since_update = 0;
-            } else {
-                drop.since_update += 1;
-            }
-        });
-
         self.runes
             .par_iter_mut()
             .zip(self.rune_rngs.par_iter_mut())
@@ -294,13 +265,16 @@ impl Rain {
                 row.par_iter_mut()
                     .zip(rngs.par_iter_mut())
                     .for_each(|(rune, rng)| {
-                        if rune.color != 0 && self.bern_randomize_symbol.sample(rng) {
+                        if rune.is_new
+                            || (rune.color != 0 && self.bern_randomize_symbol.sample(rng))
+                        {
                             rune.symbol_index = self.uniform_symbol_index.sample(rng);
+                            rune.is_new = false;
                         }
                     })
             });
 
-        if !ARGS.basic {
+        if !ARGS.basic && !ARGS.no_bg {
             self.runes
                 .par_iter_mut()
                 .zip(self.rune_rngs.par_iter_mut())
@@ -335,39 +309,77 @@ impl Rain {
                 });
         }
 
-        for drop in &self.drops {
-            let (skip, take) = if drop.y as u32 > drop.len {
-                (drop.y as usize - drop.len as usize, drop.len as usize)
-            } else {
-                (0, drop.y as usize)
-            };
-            self.runes
-                .par_iter_mut()
-                .skip(skip)
-                .take(take)
-                .enumerate()
-                .for_each(|(y, row)| {
-                    let rune = &mut row[drop.x as usize];
-                    let drop_index = drop.len - take as u32 + y as u32;
-                    let drop_len = drop.len;
-                    let visible_len = drop_len - ARGS.drop_space_len as u32;
-                    if ARGS.basic && drop_index == 0 {
-                        rune.color = 0;
-                    } else if drop_index < visible_len - 1 {
-                        rune.color = (ARGS.dim_value as u32
-                            + ((0xff - ARGS.dim_value) as f64
-                                * (drop_index as f64 * ARGS.drop_segments / visible_len as f64)
-                                    .floor()
-                                / ARGS.drop_segments) as u32)
-                            << 8;
-                    } else if drop_index == visible_len - 1 {
-                        rune.color = 0x00ff00;
-                    } else if drop_index == visible_len {
-                        rune.color = 0xffffff;
-                    } else {
-                        rune.color = 0;
-                    }
-                })
+        if !ARGS.no_rain {
+            self.drops = self
+                .drops
+                .clone()
+                .into_par_iter()
+                .filter(|drop| (drop.y as u32).saturating_sub(drop.len) < self.height as u32)
+                .collect();
+
+            self.drops.extend(
+                self.drop_rngs
+                    .iter_mut()
+                    .filter_map(|rng| {
+                        if self.bern_drop.sample(rng) {
+                            Some(Drop {
+                                x: self.uniform_x.sample(rng),
+                                y: 0,
+                                len: self.uniform_drop_len.sample(rng) as u32
+                                    + ARGS.drop_space_len as u32,
+                                fall_int: self.uniform_drop_fall_int.sample(rng),
+                                since_update: 0,
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<Drop>>(),
+            );
+
+            self.drops.par_iter_mut().for_each(|drop| {
+                if drop.since_update >= drop.fall_int {
+                    drop.y += 1;
+                    drop.since_update = 0;
+                } else {
+                    drop.since_update += 1;
+                }
+            });
+
+            for drop in &self.drops {
+                let (skip, take) = if drop.y as u32 > drop.len {
+                    (drop.y as usize - drop.len as usize, drop.len as usize)
+                } else {
+                    (0, drop.y as usize)
+                };
+                self.runes
+                    .par_iter_mut()
+                    .skip(skip)
+                    .take(take)
+                    .enumerate()
+                    .for_each(|(y, row)| {
+                        let rune = &mut row[drop.x as usize];
+                        let drop_index = drop.len - take as u32 + y as u32;
+                        let drop_len = drop.len;
+                        let visible_len = drop_len - ARGS.drop_space_len as u32;
+                        if (ARGS.basic || ARGS.no_bg) && drop_index == 0 {
+                            rune.color = 0;
+                        } else if drop_index < visible_len - 1 {
+                            rune.color = (ARGS.dim_value as u32
+                                + ((0xff - ARGS.dim_value) as f64
+                                    * (drop_index as f64 * ARGS.drop_segments / visible_len as f64)
+                                        .floor()
+                                    / ARGS.drop_segments) as u32)
+                                << 8;
+                        } else if drop_index == visible_len - 1 {
+                            rune.color = 0x00ff00;
+                        } else if drop_index == visible_len {
+                            rune.color = 0xffffff;
+                        } else {
+                            rune.color = 0;
+                        }
+                    })
+            }
         }
 
         tx.try_send(self.runes.clone()).unwrap_or_default();
