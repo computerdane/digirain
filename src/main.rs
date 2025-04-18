@@ -49,6 +49,8 @@ struct Args {
     prob_glow: f64,
     #[arg(long, default_value_t = 0.003)]
     prob_dim: f64,
+    #[arg(long, default_value_t = 0.000001)]
+    prob_flash: f64,
     #[arg(long, default_value_t = 0.002)]
     prob_drop: f64,
     #[arg(long, default_value_t = 0.16)]
@@ -58,9 +60,13 @@ struct Args {
     glow_value: u8,
     #[arg(long, default_value_t = 0x40)]
     dim_value: u8,
+    #[arg(long, default_value_t = 0xb0)]
+    flash_value: u8,
 
     #[arg(long, default_value_t = 0.9)]
     decay_scalar: f64,
+    #[arg(long, default_value_t = 0.99)]
+    flash_decay_scalar: f64,
 
     #[arg(long, default_value_t = 30)]
     min_drop_len: u16,
@@ -100,6 +106,7 @@ static ARGS: LazyLock<Args> = LazyLock::new(|| Args::parse());
 struct Rune {
     symbol_index: usize,
     color: u32,
+    is_flash: bool,
 }
 
 impl Rune {
@@ -121,6 +128,7 @@ impl Default for Rune {
         Rune {
             symbol_index: 0,
             color: 0,
+            is_flash: false,
         }
     }
 }
@@ -166,6 +174,7 @@ struct Rain {
     bern_randomize_symbol: Bernoulli,
     bern_glow: Bernoulli,
     bern_dim: Bernoulli,
+    bern_flash: Bernoulli,
     bern_drop: Bernoulli,
     bern_decay: Bernoulli,
 }
@@ -213,6 +222,7 @@ impl Rain {
             bern_randomize_symbol: Bernoulli::new(ARGS.prob_randomize_symbol).unwrap(),
             bern_glow: Bernoulli::new(ARGS.prob_glow).unwrap(),
             bern_dim: Bernoulli::new(ARGS.prob_dim).unwrap(),
+            bern_flash: Bernoulli::new(ARGS.prob_flash).unwrap(),
             bern_drop: Bernoulli::new(ARGS.prob_drop).unwrap(),
             bern_decay: Bernoulli::new(ARGS.prob_decay).unwrap(),
         }
@@ -298,15 +308,28 @@ impl Rain {
                     row.par_iter_mut()
                         .zip(rngs.par_iter_mut())
                         .for_each(|(rune, rng)| {
-                            if self.bern_glow.sample(rng) {
-                                rune.color = (ARGS.glow_value as u32) << 8;
+                            if self.bern_flash.sample(rng) {
+                                rune.is_flash = true;
+                                rune.color = (ARGS.flash_value as u32) << 8;
                             }
-                            if self.bern_dim.sample(rng) {
-                                rune.color = (ARGS.dim_value as u32) << 8;
+                            if !rune.is_flash {
+                                if self.bern_glow.sample(rng) {
+                                    rune.color = (ARGS.glow_value as u32) << 8;
+                                }
+                                if self.bern_dim.sample(rng) {
+                                    rune.color = (ARGS.dim_value as u32) << 8;
+                                }
                             }
-                            if rune.color > 0 && self.bern_decay.sample(rng) {
+                            if rune.color == 0 {
+                                rune.is_flash = false;
+                            } else if self.bern_decay.sample(rng) {
+                                let decay_scalar = if rune.is_flash {
+                                    ARGS.flash_decay_scalar
+                                } else {
+                                    ARGS.decay_scalar
+                                };
                                 rune.color =
-                                    (((rune.color >> 8) as f64 * ARGS.decay_scalar) as u32) << 8;
+                                    (((rune.color >> 8) as f64 * decay_scalar) as u32) << 8;
                             }
                         })
                 });
