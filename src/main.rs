@@ -49,16 +49,16 @@ struct Args {
     prob_glow: f64,
     #[arg(long, default_value_t = 0.003)]
     prob_dim: f64,
-    #[arg(long, default_value_t = 0.000001)]
+    #[arg(long, default_value_t = 0.0000002)]
     prob_flash: f64,
-    #[arg(long, default_value_t = 0.002)]
+    #[arg(long, default_value_t = 0.0015)]
     prob_drop: f64,
     #[arg(long, default_value_t = 0.16)]
     prob_decay: f64,
 
-    #[arg(long, default_value_t = 0x50)]
-    glow_value: u8,
     #[arg(long, default_value_t = 0x40)]
+    glow_value: u8,
+    #[arg(long, default_value_t = 0x30)]
     dim_value: u8,
     #[arg(long, default_value_t = 0xb0)]
     flash_value: u8,
@@ -274,7 +274,7 @@ impl Rain {
                     })
             });
 
-        if !ARGS.basic && !ARGS.no_bg {
+        if !ARGS.no_bg {
             self.runes
                 .par_iter_mut()
                 .zip(self.rune_rngs.par_iter_mut())
@@ -286,7 +286,7 @@ impl Rain {
                                 rune.is_flash = true;
                                 rune.color = (ARGS.flash_value as u32) << 8;
                             }
-                            if !rune.is_flash {
+                            if !ARGS.basic && !rune.is_flash {
                                 if self.bern_glow.sample(rng) {
                                     rune.color = (ARGS.glow_value as u32) << 8;
                                 }
@@ -375,7 +375,7 @@ impl Rain {
                             rune.color = 0x00ff00;
                         } else if drop_index == visible_len {
                             rune.color = 0xffffff;
-                        } else {
+                        } else if !rune.is_flash {
                             rune.color = 0;
                         }
                     })
