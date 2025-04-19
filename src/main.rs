@@ -103,6 +103,9 @@ struct Args {
     no_rain: bool,
     #[arg(long, default_value_t = false)]
     no_bg: bool,
+
+    #[arg(long, default_value_t = 8)]
+    shift_amt: usize,
 }
 
 static ARGS: LazyLock<Args> = LazyLock::new(|| Args::parse());
@@ -284,14 +287,14 @@ impl Rain {
                         .for_each(|(rune, rng)| {
                             if self.bern_flash.sample(rng) {
                                 rune.is_flash = true;
-                                rune.color = (ARGS.flash_value as u32) << 8;
+                                rune.color = (ARGS.flash_value as u32) << ARGS.shift_amt;
                             }
                             if !ARGS.basic && !rune.is_flash {
                                 if self.bern_glow.sample(rng) {
-                                    rune.color = (ARGS.glow_value as u32) << 8;
+                                    rune.color = (ARGS.glow_value as u32) << ARGS.shift_amt;
                                 }
                                 if self.bern_dim.sample(rng) {
-                                    rune.color = (ARGS.dim_value as u32) << 8;
+                                    rune.color = (ARGS.dim_value as u32) << ARGS.shift_amt;
                                 }
                             }
                             if rune.color == 0 {
@@ -302,8 +305,9 @@ impl Rain {
                                 } else {
                                     ARGS.decay_scalar
                                 };
-                                rune.color =
-                                    (((rune.color >> 8) as f64 * decay_scalar) as u32) << 8;
+                                rune.color = (((rune.color >> ARGS.shift_amt) as f64 * decay_scalar)
+                                    as u32)
+                                    << ARGS.shift_amt;
                             }
                         })
                 });
@@ -370,9 +374,9 @@ impl Rain {
                                     * (drop_index as f64 * ARGS.drop_segments / visible_len as f64)
                                         .floor()
                                     / ARGS.drop_segments) as u32)
-                                << 8;
+                                << ARGS.shift_amt;
                         } else if drop_index == visible_len - 1 {
-                            rune.color = 0x00ff00;
+                            rune.color = 0xff << ARGS.shift_amt;
                         } else if drop_index == visible_len {
                             rune.color = 0xffffff;
                         } else if !rune.is_flash {
