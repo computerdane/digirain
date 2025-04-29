@@ -1,26 +1,28 @@
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
-    utils.url = "github:numtide/flake-utils";
+    flake-parts.url = "github:hercules-ci/flake-parts";
   };
+
   outputs =
-    { ... }@inputs:
-    with inputs;
-    utils.lib.eachDefaultSystem (
-      system:
-      let
-        pkgs = import nixpkgs { inherit system; };
-      in
-      rec {
-        devShell = pkgs.mkShell {
-          buildInputs = with pkgs; [
-            cargo
-            rustc
-            rustfmt
-          ];
+    inputs@{ flake-parts, nixpkgs, ... }:
+    flake-parts.lib.mkFlake { inherit inputs; } {
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+        "x86_64-darwin"
+        "aarch64-darwin"
+      ];
+      perSystem =
+        { pkgs, ... }:
+        {
+          devShells.default = pkgs.mkShell {
+            buildInputs = with pkgs; [
+              cargo
+              rustc
+              rustfmt
+            ];
+          };
+          packages.default = pkgs.callPackage ./default.nix { };
         };
-        packages.default = pkgs.callPackage ./default.nix { };
-        apps.default = utils.lib.mkApp { drv = packages.default; };
-      }
-    );
+    };
 }
